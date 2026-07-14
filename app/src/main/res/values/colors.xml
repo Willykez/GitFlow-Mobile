@@ -1,0 +1,5 @@
+<resources>
+    <!-- Command-center navy — matches the app's dark "cockpit" theme background,
+         used as the adaptive icon's background layer. -->
+    <color name="ic_launcher_background">#0A0E14</color>
+</resources>

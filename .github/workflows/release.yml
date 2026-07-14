@@ -1,0 +1,119 @@
+name: Build signed release APK
+
+# Runs when you push a version tag (e.g. "v1.0.0"), or manually from the
+# Actions tab any time ("Run workflow" button) — useful while you're still
+# testing changes and don't want to tag a release yet.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to attach the APK to a GitHub Release on a tag push
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Installs a real Gradle 8.7 and puts a `gradle` command on PATH.
+      # This project intentionally doesn't rely on `./gradlew` in CI — the
+      # binary gradle-wrapper.jar that ships with a normal Gradle project
+      # isn't checked into this repo (see README), so every step below calls
+      # `gradle` directly instead. Locally in Android Studio this doesn't
+      # matter: Android Studio regenerates the wrapper jar itself on sync.
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      # ----------------------------------------------------------------
+      # Generate a throwaway signing keystore for this build.
+      #
+      # This is NOT the same keystore between runs — every run of this
+      # workflow signs the APK with a fresh, randomly-generated key. That's
+      # fine for installing on your own device(s) (Android just needs *a*
+      # valid signature, doesn't care whose), but it means:
+      #   - You can't publish updates to the Play Store this way (Play
+      #     requires the same signing key on every update).
+      #   - If you uninstall and reinstall from a different workflow run,
+      #     Android will treat it as a different app if you ever try to
+      #     upgrade in place rather than reinstall (mismatched signatures
+      #     block updates-in-place, same as any Android app).
+      # If you want a stable, reusable signing key instead, generate one
+      # keystore yourself, base64-encode it into a GitHub secret, and swap
+      # the "Generate keystore" step below for one that decodes the secret
+      # instead of calling keytool.
+      # ----------------------------------------------------------------
+      - name: Generate signing keystore
+        id: keystore
+        run: |
+          # NOTE: modern `keytool` defaults to a PKCS12 keystore, and PKCS12
+          # requires the store password and key password to be IDENTICAL —
+          # using two different random passwords here causes a confusing
+          # "Given final block not properly padded" error later, when the
+          # build tries to open the key with a different password than the
+          # store was encrypted with. So: one password, used for both.
+          KEYSTORE_PASSWORD=$(openssl rand -hex 16)
+          KEYSTORE_PATH="$RUNNER_TEMP/alphaclone-release.keystore"
+
+          keytool -genkeypair \
+            -v \
+            -storetype PKCS12 \
+            -keystore "$KEYSTORE_PATH" \
+            -alias alphaclone \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -keypass "$KEYSTORE_PASSWORD" \
+            -dname "CN=AlphaClone, OU=AlphaClone, O=AlphaClone, L=Unknown, S=Unknown, C=TZ"
+
+          # Mask the password in logs, then hand it to later steps.
+          echo "::add-mask::$KEYSTORE_PASSWORD"
+          echo "keystore_password=$KEYSTORE_PASSWORD" >> "$GITHUB_OUTPUT"
+          echo "keystore_path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Build release APK (shrunk + signed)
+        run: |
+          gradle assembleRelease \
+            -PALPHACLONE_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
+            -PALPHACLONE_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
+            -PALPHACLONE_RELEASE_KEY_ALIAS="alphaclone" \
+            -PALPHACLONE_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
+            --no-daemon
+
+      - name: Locate the built APK
+        id: apk
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n1)
+          echo "Found: $APK_PATH"
+          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: alphaclone-release-apk
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 30
+
+      # Only runs when this workflow was triggered by pushing a tag like
+      # "v1.0.0" — attaches the APK directly to a GitHub Release so you (or
+      # anyone) can download it straight from the repo's Releases page,
+      # without digging through workflow run artifacts.
+      - name: Create GitHub Release with APK attached
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.apk.outputs.path }}
+          generate_release_notes: true
