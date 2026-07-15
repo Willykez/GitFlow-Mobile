@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -76,7 +77,15 @@ fun CloneScreen(
     }
 
     LaunchedEffect(state.done) {
-        if (state.done) onCloned()
+        if (state.done) {
+            onCloned()
+            // The ViewModel outlives this sheet (it's scoped to the screen behind it,
+            // not to `if (showCloneSheet)`), so `done` must be cleared here — otherwise
+            // the next time this sheet opens, this effect fires immediately on first
+            // composition with the stale `done = true` from the previous successful
+            // clone and closes the sheet before it can animate in.
+            viewModel.resetForm()
+        }
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -84,6 +93,7 @@ fun CloneScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
+                .imePadding()
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {

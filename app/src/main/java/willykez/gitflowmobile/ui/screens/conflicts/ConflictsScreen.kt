@@ -46,7 +46,7 @@ fun ConflictsScreen(
         },
         snackbarHost = { SnackbarHost(snack) },
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
+        Column(Modifier.fillMaxSize().padding(pad).imePadding()) {
             if (state.isLoading) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             } else {

@@ -65,19 +65,19 @@ jobs:
           # build tries to open the key with a different password than the
           # store was encrypted with. So: one password, used for both.
           KEYSTORE_PASSWORD=$(openssl rand -hex 16)
-          KEYSTORE_PATH="$RUNNER_TEMP/alphaclone-release.keystore"
+          KEYSTORE_PATH="$RUNNER_TEMP/gitflowmobile-release.keystore"
 
           keytool -genkeypair \
             -v \
             -storetype PKCS12 \
             -keystore "$KEYSTORE_PATH" \
-            -alias alphaclone \
+            -alias gitflowmobile \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
             -storepass "$KEYSTORE_PASSWORD" \
             -keypass "$KEYSTORE_PASSWORD" \
-            -dname "CN=AlphaClone, OU=AlphaClone, O=AlphaClone, L=Unknown, S=Unknown, C=TZ"
+            -dname "CN=GitFlowMobile, OU=GitFlowMobile, O=GitFlowMobile, L=Unknown, S=Unknown, C=TZ"
 
           # Mask the password in logs, then hand it to later steps.
           echo "::add-mask::$KEYSTORE_PASSWORD"
@@ -87,10 +87,10 @@ jobs:
       - name: Build release APK (shrunk + signed)
         run: |
           gradle assembleRelease \
-            -PALPHACLONE_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
-            -PALPHACLONE_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
-            -PALPHACLONE_RELEASE_KEY_ALIAS="alphaclone" \
-            -PALPHACLONE_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
+            -PGITFLOWMOBILE_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
+            -PGITFLOWMOBILE_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
+            -PGITFLOWMOBILE_RELEASE_KEY_ALIAS="gitflowmobile" \
+            -PGITFLOWMOBILE_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
             --no-daemon
 
       - name: Locate the built APK
@@ -103,7 +103,7 @@ jobs:
       - name: Upload APK as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alphaclone-release-apk
+          name: gitflowmobile-release-apk
           path: ${{ steps.apk.outputs.path }}
           retention-days: 30
 

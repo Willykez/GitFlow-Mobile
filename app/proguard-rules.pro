@@ -23,8 +23,8 @@
 # package segment entirely, so they never matched any real class) — R8
 # would have been free to strip Room's entities/DAOs/TokenCrypto on any
 # release build, a latent bug that a debug build would never surface.
--keep class willykez.alphaclone.data.db.entity.** { *; }
--keep interface willykez.alphaclone.data.db.dao.** { *; }
+-keep class willykez.gitflowmobile.data.db.entity.** { *; }
+-keep interface willykez.gitflowmobile.data.db.dao.** { *; }
 -keep class * extends androidx.room.RoomDatabase
 -dontwarn androidx.room.paging.**
 
@@ -50,7 +50,7 @@
 # TokenCrypto uses javax.crypto + Android Keystore reflectively in some
 # OEM implementations.
 -dontwarn javax.crypto.**
--keep class willykez.alphaclone.data.repository.TokenCrypto { *; }
+-keep class willykez.gitflowmobile.data.repository.TokenCrypto { *; }
 
 # --- General ---
 # Keep line numbers for readable stack traces from crash reports, but

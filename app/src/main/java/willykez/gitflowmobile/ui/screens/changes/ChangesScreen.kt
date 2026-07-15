@@ -621,7 +621,7 @@ private fun CommitBar(
     isWorking: Boolean, onCommit: () -> Unit, onPush: () -> Unit,
 ) {
     Surface(tonalElevation = 8.dp, shadowElevation = 8.dp) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+        Column(Modifier.fillMaxWidth().imePadding().padding(12.dp)) {
             OutlinedTextField(
                 value = message, onValueChange = onMessageChanged,
                 label = { Text("Commit message") },

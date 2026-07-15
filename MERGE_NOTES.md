@@ -52,3 +52,28 @@ App name, package (`willykez.gitflowmobile`), applicationId, all identifiers
 were all updated for consistency. Launcher icon was swapped to GitCommander's
 adaptive icon (git graph in command-blue on the app's navy background) —
 `res/drawable/ic_launcher_foreground.xml` + `res/values/colors.xml`.
+
+Rename was later completed in `.github/workflows/ci.yml`, `release.yml`
+(artifact names, keystore alias, `-P` Gradle property names), and
+`app/proguard-rules.pro` (which still had `-keep` rules pointed at the old
+`willykez.alphaclone` package — this would have silently broken R8 in
+release builds, since the shrinker wouldn't have known to keep the real
+entity/DAO/crypto classes).
+
+## Bug fixes
+
+- **Clone sheet failing to appear on first tap (once a repo already
+  exists)**: `CloneViewModel` is scoped to the screen behind the sheet, not
+  to the sheet's own visibility — so after a successful clone, `done =
+  true` stayed set on the retained ViewModel. The next time the sheet
+  opened, its `LaunchedEffect(state.done)` fired immediately on first
+  composition, closing the sheet before it could animate in. Fixed by
+  adding `CloneViewModel.resetForm()`, called right after `onCloned()` is
+  consumed.
+- **Keyboard covering editable fields**: the app calls `enableEdgeToEdge()`,
+  which means `windowSoftInputMode="adjustResize"` alone doesn't push
+  content above the keyboard — Compose needs an explicit `imePadding()`.
+  Added to: the Clone sheet, the Credential (token) sheet, the commit
+  message bar in Changes, the code editor in FileEditor, the `.gitignore`
+  editor, and the merge-commit-message field in Conflicts.
+

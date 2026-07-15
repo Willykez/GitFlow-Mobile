@@ -159,7 +159,7 @@ fun GitignoreScreen(repoId: Long, onBack: () -> Unit, vm: GitignoreViewModel = v
                 OutlinedTextField(
                     value = state.content,
                     onValueChange = vm::onContentChanged,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxSize().imePadding().padding(horizontal = 12.dp, vertical = 4.dp),
                     textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace),
                     placeholder = { Text("# e.g.\n*.log\nbuild/\n.DS_Store", fontFamily = FontFamily.Monospace, color = StatusClean) },
                 )

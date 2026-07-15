@@ -220,7 +220,7 @@ fun FileEditorScreen(
                 else -> OutlinedTextField(
                     value = state.text,
                     onValueChange = vm::onTextChanged,
-                    modifier = Modifier.fillMaxSize().padding(12.dp),
+                    modifier = Modifier.fillMaxSize().imePadding().padding(12.dp),
                     textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                 )

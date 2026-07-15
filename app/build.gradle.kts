@@ -22,15 +22,15 @@ android {
     // ------------------------------------------------------------------
     // Release signing
     // ------------------------------------------------------------------
-    // Reads keystore details from Gradle properties (-PALPHACLONE_RELEASE_STORE_FILE=...
+    // Reads keystore details from Gradle properties (-PGITFLOWMOBILE_RELEASE_STORE_FILE=...
     // etc, passed by the CI workflow). If those properties aren't set — e.g. you
     // run `gradle assembleRelease` locally without them — this quietly falls back
     // to signing with the normal Android debug keystore instead of failing the
     // build, so a local release build still produces an installable APK.
-    val releaseStoreFile = findProperty("ALPHACLONE_RELEASE_STORE_FILE") as String?
-    val releaseStorePassword = findProperty("ALPHACLONE_RELEASE_STORE_PASSWORD") as String?
-    val releaseKeyAlias = findProperty("ALPHACLONE_RELEASE_KEY_ALIAS") as String?
-    val releaseKeyPassword = findProperty("ALPHACLONE_RELEASE_KEY_PASSWORD") as String?
+    val releaseStoreFile = findProperty("GITFLOWMOBILE_RELEASE_STORE_FILE") as String?
+    val releaseStorePassword = findProperty("GITFLOWMOBILE_RELEASE_STORE_PASSWORD") as String?
+    val releaseKeyAlias = findProperty("GITFLOWMOBILE_RELEASE_KEY_ALIAS") as String?
+    val releaseKeyPassword = findProperty("GITFLOWMOBILE_RELEASE_KEY_PASSWORD") as String?
     val hasReleaseSigningProps = !releaseStoreFile.isNullOrBlank() &&
         !releaseStorePassword.isNullOrBlank() &&
         !releaseKeyAlias.isNullOrBlank() &&

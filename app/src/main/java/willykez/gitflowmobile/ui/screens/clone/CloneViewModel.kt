@@ -134,4 +134,21 @@ class CloneViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissError() {
         _uiState.value = _uiState.value.copy(errorMessage = null)
     }
+
+    /** Clears the form and the one-shot `done` flag after a successful clone.
+     *  Called once the sheet has told the caller it's done — without this, since
+     *  this ViewModel is scoped to the screen behind the sheet (not to the sheet's
+     *  own visibility), the next time the sheet opens it would immediately see
+     *  the previous `done = true` and close itself before appearing. */
+    fun resetForm() {
+        _uiState.value = _uiState.value.copy(
+            url = "",
+            branch = "",
+            repoName = "",
+            selectedCredentialId = null,
+            isCloning = false,
+            errorMessage = null,
+            done = false,
+        )
+    }
 }
