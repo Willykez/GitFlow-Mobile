@@ -2,20 +2,21 @@ package willykez.gitflowmobile.ui.screens.editor
 
 import android.app.Application
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -23,6 +24,7 @@ import willykez.gitflowmobile.App
 import willykez.gitflowmobile.data.db.entity.RepoEntity
 import willykez.gitflowmobile.git.GitEngine
 import willykez.gitflowmobile.git.GitResult
+import willykez.gitflowmobile.ui.theme.CommandBlue
 import willykez.gitflowmobile.ui.theme.StatusClean
 import willykez.gitflowmobile.ui.theme.StatusDeleted
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +47,9 @@ data class EditorUiState(
     val isDirty: Boolean = false,
     val isSaving: Boolean = false,
     val message: String? = null,
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
+    val showPreview: Boolean = false,
 )
 
 class FileEditorViewModel(app: Application) : AndroidViewModel(app) {
@@ -55,7 +60,23 @@ class FileEditorViewModel(app: Application) : AndroidViewModel(app) {
     private val _uiState = MutableStateFlow(EditorUiState())
     val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
 
+    // Undo/redo history. Kept outside EditorUiState (not just the two booleans
+    // that are) since these hold the actual snapshots, which are throwaway
+    // playback data rather than state the UI renders directly.
+    private val undoStack = ArrayDeque<TextFieldValue>()
+    private val redoStack = ArrayDeque<TextFieldValue>()
+    private var lastEditAtMs = 0L
+    private val maxHistory = 100
+    /** Edits within this window of each other are treated as one continuous typing
+     *  burst and coalesced into a single undo step — otherwise every keystroke would
+     *  push its own entry and undo would feel like "delete one character" instead of
+     *  "undo what I just typed." */
+    private val coalesceWindowMs = 700L
+
     fun load(repoId: Long, relativePath: String) {
+        undoStack.clear()
+        redoStack.clear()
+        lastEditAtMs = 0L
         viewModelScope.launch {
             val repo = repoRepo.getById(repoId) ?: return@launch
             _uiState.value = _uiState.value.copy(repo = repo, relativePath = relativePath, isLoading = true)
@@ -83,7 +104,54 @@ class FileEditorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun onTextChanged(newValue: TextFieldValue) {
-        _uiState.value = _uiState.value.copy(text = newValue, isDirty = true)
+        val current = _uiState.value.text
+        if (newValue.text != current.text) {
+            val now = System.currentTimeMillis()
+            if (now - lastEditAtMs > coalesceWindowMs) {
+                undoStack.addLast(current)
+                if (undoStack.size > maxHistory) undoStack.removeFirst()
+                redoStack.clear()
+            }
+            lastEditAtMs = now
+            _uiState.value = _uiState.value.copy(
+                text = newValue, isDirty = true,
+                canUndo = undoStack.isNotEmpty(), canRedo = redoStack.isNotEmpty(),
+            )
+        } else {
+            // Selection/cursor-only change (e.g. tapping around, or "go to line") —
+            // not an edit, so it shouldn't touch undo history.
+            _uiState.value = _uiState.value.copy(text = newValue)
+        }
+    }
+
+    fun undo() {
+        val prev = undoStack.removeLastOrNull() ?: return
+        redoStack.addLast(_uiState.value.text)
+        lastEditAtMs = 0L // next keystroke after an undo starts a fresh checkpoint
+        _uiState.value = _uiState.value.copy(
+            text = prev, isDirty = true,
+            canUndo = undoStack.isNotEmpty(), canRedo = redoStack.isNotEmpty(),
+        )
+    }
+
+    fun redo() {
+        val next = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(_uiState.value.text)
+        lastEditAtMs = 0L
+        _uiState.value = _uiState.value.copy(
+            text = next, isDirty = true,
+            canUndo = undoStack.isNotEmpty(), canRedo = redoStack.isNotEmpty(),
+        )
+    }
+
+    /** Moves the cursor without recording an undo step — used by "Go to line." */
+    fun moveCursorTo(offset: Int) {
+        val current = _uiState.value.text
+        _uiState.value = _uiState.value.copy(text = current.copy(selection = TextRange(offset, offset)))
+    }
+
+    fun togglePreview() {
+        _uiState.value = _uiState.value.copy(showPreview = !_uiState.value.showPreview)
     }
 
     fun selectAll() {
@@ -172,32 +240,84 @@ fun FileEditorScreen(
     val state by vm.uiState.collectAsState()
     val snack = remember { SnackbarHostState() }
     var showPushDialog by remember { mutableStateOf(false) }
+    var showGoToLine by remember { mutableStateOf(false) }
+    var showOverflow by remember { mutableStateOf(false) }
+    val language = remember(relativePath) { languageForPath(relativePath) }
+    val isMarkdown = language == CodeLanguage.MARKDOWN
+    val editorScrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(repoId, relativePath) { vm.load(repoId, relativePath) }
     LaunchedEffect(state.message) {
         state.message?.let { snack.showSnackbar(it); vm.dismissMessage() }
     }
 
+    val (currentLine, currentCol) = remember(state.text.selection.start, state.text.text) {
+        lineColForOffset(state.text.text, state.text.selection.start)
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(relativePath.substringAfterLast('/'), fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                },
-                actions = {
-                    if (!state.isBinaryOrTooLarge) {
-                        IconButton(onClick = vm::selectAll) { Icon(Icons.Filled.SelectAll, "Select all") }
-                        IconButton(onClick = vm::save, enabled = state.isDirty && !state.isSaving) {
-                            if (state.isSaving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            else Icon(Icons.Filled.Save, "Save")
+            Column {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(relativePath.substringAfterLast('/'), fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            if (!state.isBinaryOrTooLarge && !state.isLoading) {
+                                Text(
+                                    "${languageLabel(language)} · Ln $currentLine, Col $currentCol",
+                                    style = MaterialTheme.typography.labelSmall, color = StatusClean,
+                                )
+                            }
                         }
-                        IconButton(onClick = { showPushDialog = true }, enabled = !state.isSaving) {
-                            Icon(Icons.Filled.ArrowUpward, "Save, commit & push")
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                    },
+                    actions = {
+                        if (!state.isBinaryOrTooLarge && !state.isLoading) {
+                            IconButton(onClick = vm::undo, enabled = state.canUndo) {
+                                Icon(Icons.AutoMirrored.Filled.Undo, "Undo")
+                            }
+                            IconButton(onClick = vm::redo, enabled = state.canRedo) {
+                                Icon(Icons.AutoMirrored.Filled.Redo, "Redo")
+                            }
+                            if (isMarkdown) {
+                                IconButton(onClick = vm::togglePreview) {
+                                    Icon(
+                                        if (state.showPreview) Icons.Filled.Edit else Icons.Filled.Visibility,
+                                        if (state.showPreview) "Edit" else "Preview",
+                                        tint = if (state.showPreview) CommandBlue else LocalContentColor.current,
+                                    )
+                                }
+                            }
+                            IconButton(onClick = vm::save, enabled = state.isDirty && !state.isSaving) {
+                                if (state.isSaving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Filled.Save, "Save")
+                            }
+                            IconButton(onClick = { showPushDialog = true }, enabled = !state.isSaving) {
+                                Icon(Icons.Filled.ArrowUpward, "Save, commit & push")
+                            }
+                            Box {
+                                IconButton(onClick = { showOverflow = true }) { Icon(Icons.Filled.MoreVert, "More") }
+                                DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Go to line…") },
+                                        leadingIcon = { Icon(Icons.Filled.MyLocation, null) },
+                                        onClick = { showOverflow = false; showGoToLine = true },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Select all") },
+                                        leadingIcon = { Icon(Icons.Filled.SelectAll, null) },
+                                        onClick = { showOverflow = false; vm.selectAll() },
+                                    )
+                                }
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snack) { d -> Snackbar(d) } },
     ) { pad ->
@@ -217,15 +337,57 @@ fun FileEditorScreen(
                         style = MaterialTheme.typography.bodyMedium, color = StatusClean,
                     )
                 }
-                else -> OutlinedTextField(
+                isMarkdown && state.showPreview -> MarkdownPreview(state.text.text, Modifier.fillMaxSize())
+                else -> CodeEditorField(
                     value = state.text,
                     onValueChange = vm::onTextChanged,
-                    modifier = Modifier.fillMaxSize().imePadding().padding(12.dp),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
+                    language = language,
+                    verticalScrollState = editorScrollState,
+                    modifier = Modifier.fillMaxSize().imePadding(),
                 )
             }
         }
+    }
+
+    if (showGoToLine) {
+        var input by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showGoToLine = false },
+            title = { Text("Go to line") },
+            text = {
+                Column {
+                    Text(
+                        "Line, or line:column — e.g. \"156\" or \"156:13\"",
+                        style = MaterialTheme.typography.bodySmall, color = StatusClean,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = input,
+                        onValueChange = { input = it.filter { c -> c.isDigit() || c == ':' } },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val parts = input.split(":")
+                    val line = parts.getOrNull(0)?.toIntOrNull()
+                    val col = parts.getOrNull(1)?.toIntOrNull() ?: 1
+                    if (line != null && line >= 1) {
+                        val offset = offsetForLineCol(state.text.text, line, col)
+                        vm.moveCursorTo(offset)
+                        coroutineScope.launch {
+                            val targetPx = with(density) { (EditorLineHeight.toPx() * (line - 1) - 80).coerceAtLeast(0f) }
+                            editorScrollState.animateScrollTo(targetPx.toInt())
+                        }
+                    }
+                    showGoToLine = false
+                }) { Text("Go") }
+            },
+            dismissButton = { TextButton(onClick = { showGoToLine = false }) { Text("Cancel") } },
+        )
     }
 
     if (showPushDialog) {

@@ -77,3 +77,44 @@ entity/DAO/crypto classes).
   message bar in Changes, the code editor in FileEditor, the `.gitignore`
   editor, and the merge-commit-message field in Conflicts.
 
+
+## Editor upgrade: syntax highlighting, gutter, undo/redo, Markdown preview
+
+New files under `ui/screens/editor/`:
+- `SyntaxHighlighting.kt` — extension-based language detection + a regex
+  tokenizer (keywords/types/strings/numbers/comments/annotations) wrapped
+  as a `VisualTransformation`, so highlighting is purely visual and never
+  touches the actual edited text or cursor offsets. Covers Kotlin/Java/JS/
+  TS/C-family, XML/HTML, JSON, YAML, Properties, Shell, Python, and
+  Markdown (via the preview instead). Colors live in
+  `ui/theme/SyntaxColors.kt` with separate light/dark sets.
+- `CodeEditorField.kt` — the editor itself: a fixed line-number gutter
+  beside a non-wrapping, horizontally-scrolling text field, both riding one
+  shared vertical `ScrollState` so they can't drift out of sync. Also has
+  `lineColForOffset` / `offsetForLineCol` for the Ln/Col indicator and
+  "Go to line" jump.
+- `MarkdownPreview.kt` — a hand-rolled renderer covering the Markdown
+  subset that covers most real READMEs (headers, bold/italic, inline +
+  fenced code, blockquotes, lists, links, rules). Not full CommonMark.
+
+`FileEditorScreen.kt` changes:
+- Undo/redo, coalesced by a 700ms typing-pause window so it undoes "what
+  you just typed" rather than one character at a time. History resets on
+  file load and isn't persisted — closing the file clears it, same as most
+  editors.
+- Top bar now shows `<language> · Ln X, Col Y`, live off the cursor
+  position — the whole point being that when something reports an error
+  at a specific line/column, "Go to line" (in the overflow menu) jumps
+  straight there.
+- Preview/Edit toggle appears only for `.md` files.
+- Kept the top bar to 5 always-visible icons (Undo, Redo, [Preview],
+  Save, Push) + one overflow menu (Go to line, Select all) rather than
+  letting it regrow into the kind of flat icon pile the Changes screen
+  had before.
+
+**Known trade-off**: no wrap + one shared un-virtualized scroll container
+means very large files (tens of thousands of lines) will feel heavier to
+scroll than a real IDE. Files are already capped at 2 MB before this
+editor opens them at all, and syntax highlighting itself is capped at
+300k characters (falls back to plain monospace beyond that) — reasonable
+for source files and docs, not built for giant generated files.
