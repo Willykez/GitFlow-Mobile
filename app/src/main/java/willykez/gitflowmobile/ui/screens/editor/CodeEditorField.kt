@@ -64,43 +64,36 @@ fun CodeEditorField(
         color = MaterialTheme.colorScheme.onSurface,
     )
 
-    Row(modifier.fillMaxSize().verticalScroll(verticalScrollState)) {
-        // Gutter — one Text per logical line, same line height as the field so rows line up.
-        Column(
-            Modifier
-                .fillMaxHeight()
-                .widthIn(min = (gutterDigits * 9 + 20).dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 8.dp, vertical = 12.dp)
-        ) {
-            for (n in 1..lineCount) {
-                Text(
-                    text = n.toString(),
-                    style = codeTextStyle.copy(color = StatusClean),
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
-        Box(Modifier.weight(1f).fillMaxHeight()) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .horizontalScroll(horizontalScrollState)
-                    .padding(12.dp),
-                textStyle = codeTextStyle,
-                visualTransformation = SyntaxHighlightTransformation(language, syntaxColors),
-                // No `singleLine`/maxLines cap (this is a multi-line editor), and no
-                // explicit "no wrap" flag needed: `horizontalScroll` above gives this
-                // field unbounded width, so each logical line measures at its full
-                // width instead of wrapping — which is what keeps it exactly one
-                // visual row per gutter line number.
+   Row(modifier.fillMaxSize().verticalScroll(verticalScrollState)) {
+    Column(
+        Modifier
+            .widthIn(min = (gutterDigits * 9 + 20).dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 8.dp, vertical = 12.dp)
+    ) {
+        for (n in 1..lineCount) {
+            Text(
+                text = n.toString(),
+                style = codeTextStyle.copy(color = StatusClean),
+                textAlign = TextAlign.End,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
+
+    Box(Modifier.weight(1f)) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(horizontalScrollState)
+                .padding(12.dp),
+            textStyle = codeTextStyle,
+            visualTransformation = SyntaxHighlightTransformation(language, syntaxColors),
+        )
+    }
+}
 }
 
 /** 1-based (line, column) for a character offset into [text] — used both to
