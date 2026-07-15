@@ -130,7 +130,7 @@ private fun CodeBlock(code: String, language: String) {
     }
 }
 
-/** Inline emphasis: **bold**, *italic*/_italic_, `code`. Applied within a single line/paragraph. */
+/** Inline emphasis: bold, italic, and inline code. Applied within a single line/paragraph. */
 private fun inlineMarkdown(raw: String): AnnotatedString {
     val builder = AnnotatedString.Builder()
     val pattern = Regex("""\*\*(.+?)\*\*|`([^`]+?)`|\*(.+?)\*|_(.+?)_|\[([^]]+)]\(([^)]+)\)""")
