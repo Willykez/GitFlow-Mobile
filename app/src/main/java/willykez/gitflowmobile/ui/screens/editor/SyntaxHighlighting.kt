@@ -93,7 +93,7 @@ private val JsonKeyPattern = Regex(""""(?:\\.|[^"\\])*"(?=\s*:)""")
  * renders as a string, as long as STRING comes after KEYWORD in the list —
  * see [rulesFor]).
  */
-private data class Rule(val pattern: Regex, val italic: Boolean = false, val colorOf: (SyntaxColorSet) -> androidx.compose.ui.graphics.Color)
+private data class Rule(val pattern: Regex, val colorOf: (SyntaxColorSet) -> androidx.compose.ui.graphics.Color, val italic: Boolean = false)
 
 private fun rulesFor(lang: CodeLanguage): List<Rule> = when (lang) {
     CodeLanguage.KOTLIN_JAVA_C_STYLE -> listOf(
@@ -102,25 +102,25 @@ private fun rulesFor(lang: CodeLanguage): List<Rule> = when (lang) {
         Rule(AnnotationPattern) { it.annotation },
         Rule(StringPattern) { it.string },
         Rule(TripleStringPattern) { it.string },
-        Rule(BlockCommentPattern, italic = true) { it.comment },
-        Rule(LineCommentPattern, italic = true) { it.comment },
+        Rule(BlockCommentPattern, { it.comment }, italic = true),
+        Rule(LineCommentPattern, { it.comment }, italic = true),
     )
     CodeLanguage.PYTHON -> listOf(
         Rule(NumberPattern) { it.number },
         Rule(AnnotationPattern) { it.annotation },
         Rule(StringPattern) { it.string },
         Rule(TripleStringPattern) { it.string },
-        Rule(HashCommentPattern, italic = true) { it.comment },
+        Rule(HashCommentPattern, { it.comment }, italic = true),
     )
     CodeLanguage.SHELL -> listOf(
         Rule(StringPattern) { it.string },
-        Rule(HashCommentPattern, italic = true) { it.comment },
+        Rule(HashCommentPattern, { it.comment }, italic = true),
     )
     CodeLanguage.XML_HTML -> listOf(
         Rule(StringPattern) { it.string },
         Rule(XmlAttrPattern) { it.attribute },
         Rule(XmlTagPattern) { it.tag },
-        Rule(XmlCommentPattern, italic = true) { it.comment },
+        Rule(XmlCommentPattern, { it.comment }, italic = true),
     )
     CodeLanguage.JSON -> listOf(
         Rule(NumberPattern) { it.number },
@@ -130,14 +130,13 @@ private fun rulesFor(lang: CodeLanguage): List<Rule> = when (lang) {
     CodeLanguage.YAML -> listOf(
         Rule(NumberPattern) { it.number },
         Rule(StringPattern) { it.string },
-        Rule(HashCommentPattern, italic = true) { it.comment },
+        Rule(HashCommentPattern, { it.comment }, italic = true),
         Rule(YamlKeyPattern) { it.attribute },
     )
     CodeLanguage.PROPERTIES -> listOf(
-        Rule(HashCommentPattern, italic = true) { it.comment },
+        Rule(HashCommentPattern, { it.comment }, italic = true),
         Rule(PropertiesKeyPattern) { it.attribute },
     )
-    CodeLanguage.MARKDOWN -> emptyList()
     CodeLanguage.PLAIN -> emptyList()
 }
 

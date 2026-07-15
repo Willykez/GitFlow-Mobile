@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -131,7 +130,7 @@ private fun CodeBlock(code: String, language: String) {
     }
 }
 
-/** Inline emphasis: bold, italic, and inline code. Applied within a single line/paragraph. */
+/** Inline emphasis: bold with **, italic with * or _, code with backticks. Applied within a single line/paragraph. */
 private fun inlineMarkdown(raw: String): AnnotatedString {
     val builder = AnnotatedString.Builder()
     val pattern = Regex("""\*\*(.+?)\*\*|`([^`]+?)`|\*(.+?)\*|_(.+?)_|\[([^]]+)]\(([^)]+)\)""")

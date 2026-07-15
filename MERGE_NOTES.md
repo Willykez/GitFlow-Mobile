@@ -118,3 +118,29 @@ scroll than a real IDE. Files are already capped at 2 MB before this
 editor opens them at all, and syntax highlighting itself is capped at
 300k characters (falls back to plain monospace beyond that) — reasonable
 for source files and docs, not built for giant generated files.
+
+## Two more editor fixes
+
+- **Real compile break**: a KDoc comment in `MarkdownPreview.kt` described
+  inline emphasis using literal markdown syntax — `*italic*/_italic_` —
+  and that `*/` in the middle of the sentence closed the comment early.
+  Everything after it (including a chunk of real code on a later line) got
+  parsed as garbage top-level declarations, which is what CI's wall of
+  "Expecting a top level declaration" errors was. Reworded the comment to
+  not contain a literal `*/`, and re-audited every comment in the touched
+  files for the same trap (all others were clean).
+- **Blank editor body**: `CodeEditorField`'s gutter and text field were both
+  using `fillMaxHeight()` inside a `Modifier.verticalScroll()` container.
+  A scrollable container gives its child an *unbounded* height to measure
+  against (that's how it knows there's more content than the viewport) —
+  asking a child to "fill" an unbounded height doesn't error, it just
+  breaks the layout silently. The gutter's numbers still happened to
+  paint because `Text` doesn't depend on that measurement, but the actual
+  code area collapsed. Fixed by letting both size to their natural
+  content height instead (no `fillMaxHeight()` anywhere in that subtree)
+  inside a properly bounded outer `Column` — this is also the standard,
+  reliable pattern for a scrollable code editor in Compose.
+- Added a quick-symbol toolbar above the keyboard (`→ { } ( ) [ ] ; = " '
+  < > / \ + - * _ # @ ! & | :`) — the punctuation mobile keyboards bury
+  behind a symbols layer, one tap away instead. Matches the reference
+  MT Manager screenshot's bottom toolbar.

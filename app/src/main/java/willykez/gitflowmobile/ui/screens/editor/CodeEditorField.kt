@@ -2,29 +2,35 @@ package willykez.gitflowmobile.ui.screens.editor
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import willykez.gitflowmobile.ui.theme.CommandBlue
 import willykez.gitflowmobile.ui.theme.StatusClean
 import willykez.gitflowmobile.ui.theme.currentSyntaxColors
 
@@ -34,15 +40,29 @@ import willykez.gitflowmobile.ui.theme.currentSyntaxColors
 val EditorFontSize = 13.sp
 val EditorLineHeight = 19.sp
 
+/** Quick-insert symbols shown above the keyboard — the punctuation mobile
+ *  keyboards bury behind a symbols/shift layer, surfaced as one tap instead.
+ *  "→" inserts a soft-tab (4 spaces) rather than a literal tab character,
+ *  since tab-width rendering is inconsistent across fonts. */
+private val QuickSymbols = listOf(
+    "→" to "    ", "{" to "{", "}" to "}", "(" to "(", ")" to ")",
+    "[" to "[", "]" to "]", ";" to ";", "=" to "=", "\"" to "\"",
+    "'" to "'", "<" to "<", ">" to ">", "/" to "/", "\\" to "\\",
+    "+" to "+", "-" to "-", "*" to "*", "_" to "_", "#" to "#",
+    "@" to "@", "!" to "!", "&" to "&", "|" to "|", ":" to ":",
+)
+
 /**
  * A code editor: a fixed line-number gutter beside a syntax-highlighted,
- * non-wrapping text field. Both live in one shared vertical [ScrollState]
- * so the gutter and the text always scroll together; the text field alone
- * also scrolls horizontally for long lines (the gutter stays pinned).
+ * non-wrapping text field, plus a quick-symbol toolbar above the keyboard.
  *
- * Soft-wrap is deliberately off — with wrapping on, one logical line can
- * span several visual rows, and the gutter (one number per logical line)
- * would drift out of sync with what's actually on screen.
+ * The gutter and the field share one vertical [ScrollState] so they always
+ * scroll together. Neither uses `fillMaxHeight()` — under a scrollable
+ * container children are given an *unbounded* height to measure against,
+ * and asking a child to "fill" an unbounded height silently breaks its
+ * layout instead of erroring. Both are left to size to their own natural
+ * (content-driven) height instead, which is both correct and exactly what
+ * you want here: the row's total height comes out to line-count × line-height.
  */
 @Composable
 fun CodeEditorField(
@@ -64,36 +84,90 @@ fun CodeEditorField(
         color = MaterialTheme.colorScheme.onSurface,
     )
 
-   Row(modifier.fillMaxSize().verticalScroll(verticalScrollState)) {
-    Column(
-        Modifier
-            .widthIn(min = (gutterDigits * 9 + 20).dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 8.dp, vertical = 12.dp)
-    ) {
-        for (n in 1..lineCount) {
-            Text(
-                text = n.toString(),
-                style = codeTextStyle.copy(color = StatusClean),
-                textAlign = TextAlign.End,
-                modifier = Modifier.fillMaxWidth(),
+    Column(modifier) {
+        Row(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(verticalScrollState)
+        ) {
+            // Gutter — one Text per logical line, same line height as the field so rows line up.
+            Column(
+                Modifier
+                    .widthIn(min = (gutterDigits * 9 + 20).dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 8.dp, vertical = 12.dp)
+            ) {
+                for (n in 1..lineCount) {
+                    Text(
+                        text = n.toString(),
+                        style = codeTextStyle.copy(color = StatusClean),
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(horizontalScrollState)
+                    .padding(12.dp),
+                textStyle = codeTextStyle,
+                visualTransformation = SyntaxHighlightTransformation(language, syntaxColors),
+                // No `singleLine`/maxLines cap (this is a multi-line editor). No explicit
+                // "no wrap" flag exists on this overload — `horizontalScroll` above gives
+                // this field unbounded width instead, so each logical line measures at
+                // its full width rather than wrapping, which is what keeps it exactly
+                // one visual row per gutter line number.
             )
         }
-    }
 
-    Box(Modifier.weight(1f)) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(horizontalScrollState)
-                .padding(12.dp),
-            textStyle = codeTextStyle,
-            visualTransformation = SyntaxHighlightTransformation(language, syntaxColors),
+        HorizontalDivider()
+        QuickSymbolToolbar(
+            onInsert = { symbol -> onValueChange(insertAtCursor(value, symbol)) },
         )
     }
 }
+
+@Composable
+private fun QuickSymbolToolbar(onInsert: (String) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .horizontalScroll(rememberScrollState()),
+    ) {
+        QuickSymbols.forEach { (label, insertText) ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .width(40.dp)
+                    .clickable { onInsert(insertText) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 15.sp,
+                    color = if (label == "→") CommandBlue else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
+}
+
+/** Replaces the current selection (or inserts at the cursor, if nothing is
+ *  selected) with [insert], and places the cursor right after it. */
+private fun insertAtCursor(value: TextFieldValue, insert: String): TextFieldValue {
+    val start = value.selection.min
+    val end = value.selection.max
+    val newText = value.text.replaceRange(start, end, insert)
+    val newCursor = start + insert.length
+    return TextFieldValue(newText, TextRange(newCursor, newCursor))
 }
 
 /** 1-based (line, column) for a character offset into [text] — used both to
