@@ -137,6 +137,7 @@ private fun rulesFor(lang: CodeLanguage): List<Rule> = when (lang) {
         Rule(HashCommentPattern, italic = true) { it.comment },
         Rule(PropertiesKeyPattern) { it.attribute },
     )
+    CodeLanguage.MARKDOWN -> emptyList() // edited as plain monospace text — see MarkdownPreview.kt for the rendered view
     CodeLanguage.PLAIN -> emptyList()
 }
 
@@ -147,7 +148,7 @@ private fun rulesFor(lang: CodeLanguage): List<Rule> = when (lang) {
  * checks a single shared regex list handles awkwardly.
  */
 fun highlightText(text: String, lang: CodeLanguage, colors: SyntaxColorSet): AnnotatedString {
-    if (lang == CodeLanguage.PLAIN || text.isEmpty()) return AnnotatedString(text)
+    if (lang == CodeLanguage.PLAIN || lang == CodeLanguage.MARKDOWN || text.isEmpty()) return AnnotatedString(text)
 
     // Cap highlighting to a sane size — a multi-MB file re-running several
     // regexes on every keystroke would visibly lag typing. Past this size

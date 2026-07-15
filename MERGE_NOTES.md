@@ -149,3 +149,10 @@ for source files and docs, not built for giant generated files.
 
 - `MarkdownPreview.kt`: missing import for `androidx.compose.foundation.layout.width` (used by the blockquote's `Spacer`).
 - `SyntaxHighlighting.kt`: the `Rule` data class had `colorOf: (SyntaxColorSet) -> Color` as its *second* parameter and `italic: Boolean = false` last. Trailing-lambda call syntax (`Rule(pattern) { it.type }`) always binds to the *last* parameter — so every one of those calls was actually trying to pass the lambda as `italic`, not `colorOf`, which is why the error log showed a `colorOf` parameter never being filled everywhere. Reordered so `colorOf` is genuinely last, and updated the `italic = true` call sites to `Rule(pattern, italic = true) { ... }`.
+
+## One more compile fix
+`rulesFor(lang)`'s `when` only covered 8 of the 9 `CodeLanguage` values —
+`MARKDOWN` had no branch (markdown is rendered through the separate
+Preview mode, so it was easy to forget the raw-editor path still calls
+into this for Edit mode). Added `MARKDOWN -> emptyList()`, same as
+`PLAIN` — markdown source is edited as plain monospace text.
