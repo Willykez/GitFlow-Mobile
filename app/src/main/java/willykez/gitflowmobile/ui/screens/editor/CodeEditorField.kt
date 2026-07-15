@@ -6,8 +6,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -64,11 +62,19 @@ fun CodeEditorField(
         color = MaterialTheme.colorScheme.onSurface,
     )
 
-    Row(modifier.fillMaxSize().verticalScroll(verticalScrollState)) {
+    // NOTE: this Row lives inside a verticalScroll, which measures its content with an
+    // unbounded (infinite) height so the content can be taller than the viewport and
+    // scroll. Children must NOT call fillMaxHeight()/fillMaxSize() here — asking a
+    // child to "fill" an infinite height breaks layout (this was the bug: the gutter
+    // and text field collapsed/mispositioned instead of rendering). Instead every
+    // child sizes to its own natural (wrap) content height, which is exactly what
+    // keeps the gutter and the text field the same height as each other, since they
+    // share the same line count and line height. MarkdownPreview.kt already follows
+    // this pattern correctly, which is why it doesn't exhibit the bug.
+    Row(modifier.fillMaxWidth().verticalScroll(verticalScrollState)) {
         // Gutter — one Text per logical line, same line height as the field so rows line up.
         Column(
             Modifier
-                .fillMaxHeight()
                 .widthIn(min = (gutterDigits * 9 + 20).dp)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .padding(horizontal = 8.dp, vertical = 12.dp)
@@ -83,12 +89,12 @@ fun CodeEditorField(
             }
         }
 
-        Box(Modifier.weight(1f).fillMaxHeight()) {
+        Box(Modifier.weight(1f)) {
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier
-                    .fillMaxSize()
+                    .fillMaxWidth()
                     .horizontalScroll(horizontalScrollState)
                     .padding(12.dp),
                 textStyle = codeTextStyle,
