@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -92,9 +91,14 @@ fun CodeEditorField(
                 .verticalScroll(verticalScrollState)
         ) {
             // Gutter — one Text per logical line, same line height as the field so rows line up.
+            // Fixed exact width, not just a minimum: every Text inside uses fillMaxWidth()
+            // to right-align its number, which gives Compose no smaller intrinsic width
+            // to prefer — with only `widthIn(min = ...)` (no max), the gutter would happily
+            // expand to fill whatever width the row hands it, pushing the actual text field
+            // off-screen. `.width(...)` pins it to exactly the size the digits need.
             Column(
                 Modifier
-                    .widthIn(min = (gutterDigits * 9 + 20).dp)
+                    .width((gutterDigits * 9 + 20).dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .padding(horizontal = 8.dp, vertical = 12.dp)
             ) {

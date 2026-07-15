@@ -2,16 +2,7 @@ package willykez.gitflowmobile.ui.screens.editor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -66,6 +57,60 @@ fun MarkdownPreview(source: String, modifier: Modifier = Modifier) {
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
                 }
 
+                // A <p> ... </p> block used purely to wrap shields.io-style badges
+                // (<img alt="..." src="...">). Full HTML rendering is out of scope for
+                // this preview, but this specific pattern is common enough in READMEs
+                // to be worth recognizing — render each badge's alt text as a small chip
+                // instead of dumping the raw tag soup as text.
+                line.trimStart().startsWith("<p>") || line.trimStart().startsWith("<p ") -> {
+                    val block = StringBuilder(line)
+                    while (i < lines.size && !lines[i].contains("</p>")) {
+                        i++
+                        if (i < lines.size) block.append(' ').append(lines[i])
+                    }
+                    val alts = Regex("""alt="([^"]*)"""").findAll(block.toString()).map { it.groupValues[1] }.toList()
+                    if (alts.isNotEmpty()) {
+                        Row(Modifier.padding(vertical = 6.dp)) {
+                            alts.forEach { alt ->
+                                Box(
+                                    Modifier
+                                        .padding(end = 6.dp)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(alt, style = MaterialTheme.typography.labelSmall, color = StatusClean)
+                                }
+                            }
+                        }
+                    }
+                    // A <p> block with no <img> badges inside (plain HTML wrapping real
+                    // text) — strip the tags and show the text rather than showing nothing.
+                    else {
+                        val text = block.toString().replace(Regex("<[^>]*>"), "").trim()
+                        if (text.isNotBlank()) Text(text, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                // A line that's nothing but a stray HTML tag (e.g. a lone </p> that
+                // wasn't caught above) — skip it rather than showing raw "<...>" text.
+                Regex("""^\s*</?[a-zA-Z][^>]*>\s*$""").matches(line) -> { /* no-op */ }
+
+                // A Markdown table: a "| a | b |" header row followed by a
+                // "|---|---|" (dashes/colons only) separator row.
+                line.trimStart().startsWith("|") && i + 1 < lines.size &&
+                    Regex("""^\s*\|?[\s:|-]+\|?\s*$""").matches(lines[i + 1]) && lines[i + 1].contains('-') -> {
+                    val headerCells = parseTableRow(line)
+                    i += 2 // skip header + separator
+                    val rows = mutableListOf<List<String>>()
+                    while (i < lines.size && lines[i].trimStart().startsWith("|")) {
+                        rows.add(parseTableRow(lines[i]))
+                        i++
+                    }
+                    i-- // outer loop will i++ again
+                    MdTable(headerCells, rows)
+                }
+
+
                 line.trimStart().startsWith("> ") -> {
                     Row(Modifier.padding(vertical = 4.dp)) {
                         Box4(color = MaterialTheme.colorScheme.outline)
@@ -94,6 +139,46 @@ fun MarkdownPreview(source: String, modifier: Modifier = Modifier) {
                 )
             }
             i++
+        }
+    }
+}
+
+/** Splits a "| a | b | c |" row into cells, tolerating missing leading/trailing pipes. */
+private fun parseTableRow(row: String): List<String> =
+    row.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
+
+@Composable
+private fun MdTable(header: List<String>, rows: List<List<String>>) {
+    val columnCount = header.size
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+    ) {
+        TableRow(header, isHeader = true)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+        rows.forEachIndexed { idx, row ->
+            // Pad/truncate ragged rows to the header's column count rather than
+            // crashing or silently misaligning cells.
+            val cells = List(columnCount) { c -> row.getOrElse(c) { "" } }
+            TableRow(cells, isHeader = false)
+            if (idx != rows.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+        }
+    }
+}
+
+@Composable
+private fun TableRow(cells: List<String>, isHeader: Boolean) {
+    Row(Modifier.fillMaxWidth()) {
+        cells.forEach { cell ->
+            Box(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Text(
+                    inlineMarkdown(cell),
+                    style = if (isHeader) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodySmall,
+                    fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
         }
     }
 }

@@ -156,3 +156,24 @@ for source files and docs, not built for giant generated files.
 Preview mode, so it was easy to forget the raw-editor path still calls
 into this for Edit mode). Added `MARKDOWN -> emptyList()`, same as
 `PLAIN` — markdown source is edited as plain monospace text.
+
+## Markdown preview: tables + raw HTML badges, and a real gutter-width bug
+
+- **Gutter taking over the whole screen**: the gutter `Column`'s width was
+  set with `widthIn(min = ...)` — a *minimum* only, no maximum. Every line
+  number inside it uses `fillMaxWidth()` to right-align, which gives
+  Compose no smaller natural width to prefer — with nothing capping it,
+  the gutter would expand to fill whatever width the row handed it,
+  shoving the actual text field off-screen to the right (exactly what you
+  saw). Changed to a fixed `.width(...)` instead of an open-ended minimum.
+- **Markdown tables**: `| a | b |` header + `|---|---|` separator rows are
+  now parsed and rendered as an actual bordered table, not literal pipe
+  text.
+- **Raw HTML in the README**: the badge block
+  (`<p><img alt="..." src="...">...</p>`) is now recognized as one unit
+  (its `<img>` tags can span multiple source lines since the URLs wrap) —
+  each badge's `alt` text renders as a small chip. A `<p>` with real text
+  and no images strips the tags and shows the text. A stray leftover tag
+  on its own line is dropped instead of showing as raw `<...>` text. This
+  isn't general HTML rendering — just enough to stop badge blocks from
+  showing as tag soup, which is the common case in real READMEs.
