@@ -22,10 +22,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,6 +64,18 @@ private val QuickSymbols = listOf(
  * layout instead of erroring. Both are left to size to their own natural
  * (content-driven) height instead, which is both correct and exactly what
  * you want here: the row's total height comes out to line-count × line-height.
+ *
+ * IMPORTANT — line-height trim parity: the gutter renders one `Text` per
+ * number (each one is both the first AND last line of its own paragraph),
+ * while the field renders one paragraph with many lines (only its very
+ * first and very last line are edge lines). Compose's default line-height
+ * trim strategy (`Trim.Both`) shaves ascent/descent space off first/last
+ * lines only — so left at the default, every gutter line gets trimmed
+ * twice as much as an interior field line, and the two drift apart a little
+ * more with every line. `codeTextStyle` below pins `Trim.None` (plus
+ * disables legacy font padding, a prerequisite for `LineHeightStyle` to
+ * take effect at all) so every line in both composables gets the exact
+ * same, untrimmed line box.
  */
 @Composable
 fun CodeEditorField(
@@ -81,6 +95,16 @@ fun CodeEditorField(
         fontSize = EditorFontSize,
         lineHeight = EditorLineHeight,
         color = MaterialTheme.colorScheme.onSurface,
+        // Legacy font padding adds inconsistent top/bottom padding per-platform and
+        // must be off for lineHeightStyle (below) to actually govern the line box.
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+        // Trim.None = no ascent/descent shaved off first/last lines, so a
+        // single-line gutter Text and a multi-line field paragraph resolve
+        // every line to the *same* height instead of drifting apart.
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.None,
+        ),
     )
 
     Column(modifier) {
