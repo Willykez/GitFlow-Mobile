@@ -19,6 +19,7 @@ import willykez.gitflowmobile.ui.screens.editor.FileEditorScreen
 import willykez.gitflowmobile.ui.screens.explorer.FileExplorerScreen
 import willykez.gitflowmobile.ui.screens.gitignore.GitignoreScreen
 import willykez.gitflowmobile.ui.screens.log.LogScreen
+import willykez.gitflowmobile.ui.screens.problems.ProblemsScreen
 import willykez.gitflowmobile.ui.screens.remote.RemoteScreen
 import willykez.gitflowmobile.ui.screens.repolist.RepoListScreen
 import willykez.gitflowmobile.ui.screens.settings.SettingsScreen
@@ -39,9 +40,10 @@ object Routes {
     const val TAGS       = "tags/{repoId}"
     const val GITIGNORE  = "gitignore/{repoId}"
     const val EXPLORER   = "explorer/{repoId}/{encodedPath}"
-    const val EDITOR     = "editor/{repoId}/{encodedPath}"
+    const val EDITOR     = "editor/{repoId}/{encodedPath}?line={line}"
     const val CONFLICTS  = "conflicts/{repoId}"
     const val BLAME      = "blame/{repoId}/{encodedPath}"
+    const val PROBLEMS   = "problems/{repoId}"
 
     fun changes(id: Long)  = "changes/$id"
     fun log(id: Long)      = "log/$id"
@@ -59,10 +61,11 @@ object Routes {
         // a route argument), so it'd silently fail to resolve and crash. See the matching
         // decode side in GitFlowMobileNavHost's EXPLORER composable.
         "explorer/$id/${java.net.URLEncoder.encode(path.ifBlank { "." }, "UTF-8")}"
-    fun editor(id: Long, path: String) =
-        "editor/$id/${java.net.URLEncoder.encode(path, "UTF-8")}"
+    fun editor(id: Long, path: String, line: Int = 0) =
+        "editor/$id/${java.net.URLEncoder.encode(path, "UTF-8")}?line=$line"
     fun conflicts(id: Long) = "conflicts/$id"
     fun blame(id: Long, path: String) = "blame/$id/${java.net.URLEncoder.encode(path, "UTF-8")}"
+    fun problems(id: Long) = "problems/$id"
 }
 
 private const val T = 240
@@ -98,6 +101,7 @@ fun GitFlowMobileNavHost(nav: NavHostController) {
                 onOpenTags     = { nav.navigate(Routes.tags(id)) },
                 onOpenGitignore= { nav.navigate(Routes.gitignore(id)) },
                 onOpenFiles    = { nav.navigate(Routes.explorer(id)) },
+                onOpenProblems = { nav.navigate(Routes.problems(id)) },
                 onOpenConflicts= { nav.navigate(Routes.conflicts(id)) },
                 onOpenDiff     = { path, staged -> nav.navigate(Routes.diff(id, path, staged)) },
             )
@@ -153,11 +157,13 @@ fun GitFlowMobileNavHost(nav: NavHostController) {
         composable(Routes.EDITOR, arguments = listOf(
             navArgument("repoId") { type = NavType.LongType },
             navArgument("encodedPath") { type = NavType.StringType },
+            navArgument("line") { type = NavType.IntType; defaultValue = 0 },
         )) { bs ->
             val path = java.net.URLDecoder.decode(bs.arguments!!.getString("encodedPath") ?: "", "UTF-8")
             FileEditorScreen(
                 repoId = bs.arguments!!.getLong("repoId"),
                 relativePath = path,
+                initialLine = bs.arguments!!.getInt("line"),
                 onBack = { nav.popBackStack() },
             )
         }
@@ -179,6 +185,14 @@ fun GitFlowMobileNavHost(nav: NavHostController) {
                 repoId = id, path = path,
                 onBack = { nav.popBackStack() },
                 onOpenCommit = { sha -> nav.navigate("diff/$id/${java.net.URLEncoder.encode(sha, "UTF-8")}/commit") },
+            )
+        }
+        composable(Routes.PROBLEMS, arguments = listOf(navArgument("repoId") { type = NavType.LongType })) { bs ->
+            val id = bs.arguments!!.getLong("repoId")
+            ProblemsScreen(
+                repoId = id,
+                onBack = { nav.popBackStack() },
+                onOpenFile = { path, line -> nav.navigate(Routes.editor(id, path, line)) },
             )
         }
     }

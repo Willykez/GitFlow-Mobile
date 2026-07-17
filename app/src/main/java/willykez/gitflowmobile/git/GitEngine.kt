@@ -8,7 +8,11 @@ import org.eclipse.jgit.api.ListBranchCommand
 import org.eclipse.jgit.api.MergeResult
 import org.eclipse.jgit.api.RebaseResult
 import org.eclipse.jgit.api.ResetCommand
+import org.eclipse.jgit.dircache.DirCacheEditor
+import org.eclipse.jgit.dircache.DirCacheEntry
 import org.eclipse.jgit.lib.BranchTrackingStatus
+import org.eclipse.jgit.lib.Constants
+import org.eclipse.jgit.lib.FileMode
 import org.eclipse.jgit.lib.PersonIdent
 import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.transport.RefSpec
@@ -100,6 +104,105 @@ object GitEngine {
 
     suspend fun discardAllChanges(git: Git): GitResult<Unit> = io {
         git.checkout().setAllPaths(true).call(); Unit
+    }
+
+    // ── hunk-level staging ("git add -p" equivalent) ────────────────────────
+    //
+    // These reconstruct a *new version* of one file's content by applying only
+    // the chosen hunk on top of the relevant base, then write that as the new
+    // index entry (stageHunk) or working-tree file (discardHunk) — every other
+    // change to the file, staged or not, is left exactly as it was. This is
+    // the newest, least-tested part of the git engine: it hand-builds a patched
+    // file rather than calling a single JGit "apply hunk" primitive (JGit
+    // doesn't expose one at the hunk granularity), so treat it with a bit more
+    // caution than the rest of the engine — verify against a throwaway repo
+    // before relying on it for real work.
+
+    /** Reads the CURRENT INDEX version of [path] — the base that a `stageFile`-less
+     *  hunk needs to be applied onto, since "stage this hunk" means "index should
+     *  now equal index-plus-just-this-hunk", not "index should equal working tree." */
+    private fun readIndexBytes(git: Git, path: String): Pair<ByteArray, FileMode> {
+        val dirCache = git.repository.readDirCache()
+        val entry = dirCache.getEntry(path)
+        if (entry == null) return ByteArray(0) to FileMode.REGULAR_FILE
+        val bytes = git.repository.newObjectReader().open(entry.objectId).bytes
+        return bytes to entry.fileMode
+    }
+
+    /** Writes [newContent] as the index entry for [path], replacing whatever
+     *  blob was staged there before (or creating the entry if this is the
+     *  first thing ever staged for a brand-new file). */
+    private fun writeIndexEntry(git: Git, path: String, newContent: ByteArray, mode: FileMode) {
+        val inserter = git.repository.newObjectInserter()
+        val newBlobId = inserter.insert(Constants.OBJ_BLOB, newContent)
+        inserter.flush()
+
+        val dirCache = git.repository.lockDirCache()
+        var committed = false
+        try {
+            val editor: DirCacheEditor = dirCache.editor()
+            editor.add(object : DirCacheEditor.PathEdit(path) {
+                override fun apply(ent: DirCacheEntry) {
+                    ent.fileMode = mode
+                    ent.setObjectId(newBlobId)
+                    ent.lastModified = System.currentTimeMillis()
+                }
+            })
+            committed = editor.commit()
+        } finally {
+            if (!committed) dirCache.unlock()
+        }
+    }
+
+    /** Applies [hunk]'s changes onto [baseLines] (the version the hunk's old-side
+     *  numbers refer to), returning the patched line list. Shared by stage and
+     *  discard — discard just passes the hunk's lines in reverse (added↔removed). */
+    private fun applyHunkToLines(baseLines: List<String>, hunk: DiffHunk): List<String> {
+        val startIdx = (hunk.oldStart - 1).coerceIn(0, baseLines.size)
+        val before = baseLines.subList(0, startIdx)
+        val patchedMiddle = mutableListOf<String>()
+        for (line in hunk.lines) {
+            when (line.type) {
+                DiffLineType.ADDED -> patchedMiddle.add(line.content)
+                DiffLineType.REMOVED -> {} // dropped from the result
+                DiffLineType.CONTEXT -> patchedMiddle.add(line.content)
+            }
+        }
+        val afterIdx = (startIdx + hunk.oldCount).coerceIn(0, baseLines.size)
+        val after = baseLines.subList(afterIdx, baseLines.size)
+        return before + patchedMiddle + after
+    }
+
+    /** Stages just [hunk] of [path]'s unstaged changes — the rest of the file's
+     *  staged/unstaged state is untouched. [hunk] should come from
+     *  `getDiff(git, path, staged = false)` (index vs. working tree), since
+     *  its old-side numbers must refer to the current index content. */
+    suspend fun stageHunk(git: Git, path: String, hunk: DiffHunk): GitResult<Unit> = io {
+        val (indexBytes, mode) = readIndexBytes(git, path)
+        val baseLines = String(indexBytes, Charsets.UTF_8).split("\n")
+        val patched = applyHunkToLines(baseLines, hunk)
+        writeIndexEntry(git, path, patched.joinToString("\n").toByteArray(Charsets.UTF_8), mode)
+    }
+
+    /** Reverts just [hunk] in the working-tree copy of [path] — i.e. "discard
+     *  this one change," leaving every other uncommitted edit to the file in
+     *  place. Writes straight to the working-tree file (no index/DirCache
+     *  involvement, matching plain `discardFile`'s working-tree-only scope). */
+    suspend fun discardHunk(git: Git, path: String, hunk: DiffHunk): GitResult<Unit> = io {
+        val file = File(git.repository.workTree, path)
+        val currentLines = file.readText(Charsets.UTF_8).split("\n")
+        // Undo, in the working tree: replace this hunk's new-side span with its
+        // old-side content — i.e. apply the hunk with added/removed swapped.
+        val inverseLines = hunk.lines.map { line ->
+            when (line.type) {
+                DiffLineType.ADDED -> line.copy(type = DiffLineType.REMOVED)
+                DiffLineType.REMOVED -> line.copy(type = DiffLineType.ADDED)
+                DiffLineType.CONTEXT -> line
+            }
+        }
+        val inverseHunk = hunk.copy(oldStart = hunk.newStart, lines = inverseLines)
+        val patched = applyHunkToLines(currentLines, inverseHunk)
+        file.writeText(patched.joinToString("\n"), Charsets.UTF_8)
     }
 
     // ── commit ────────────────────────────────────────────────────────────────

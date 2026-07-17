@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -50,6 +52,13 @@ data class EditorUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val showPreview: Boolean = false,
+    val showFind: Boolean = false,
+    val showReplace: Boolean = false,
+    val findQuery: String = "",
+    val replaceText: String = "",
+    val matchCaseSensitive: Boolean = false,
+    val matchRanges: List<IntRange> = emptyList(),
+    val currentMatchIndex: Int = -1,
 )
 
 class FileEditorViewModel(app: Application) : AndroidViewModel(app) {
@@ -154,6 +163,103 @@ class FileEditorViewModel(app: Application) : AndroidViewModel(app) {
         _uiState.value = _uiState.value.copy(showPreview = !_uiState.value.showPreview)
     }
 
+    fun toggleFind() {
+        val opening = !_uiState.value.showFind
+        _uiState.value = _uiState.value.copy(
+            showFind = opening,
+            showReplace = if (!opening) false else _uiState.value.showReplace,
+            matchRanges = if (!opening) emptyList() else _uiState.value.matchRanges,
+            currentMatchIndex = if (!opening) -1 else _uiState.value.currentMatchIndex,
+        )
+    }
+
+    fun toggleReplace() {
+        _uiState.value = _uiState.value.copy(showReplace = !_uiState.value.showReplace)
+    }
+
+    fun toggleMatchCase() {
+        val s = _uiState.value
+        setFindQuery(s.findQuery, !s.matchCaseSensitive)
+    }
+
+    /** Recomputes every match for [query] against the current text and jumps to
+     *  the first one at or after the cursor — re-running this on every keystroke
+     *  keeps the match count/highlights live as you type, same as a browser's find. */
+    fun setFindQuery(query: String, caseSensitive: Boolean = _uiState.value.matchCaseSensitive) {
+        val text = _uiState.value.text.text
+        val ranges = if (query.isEmpty()) emptyList() else {
+            val haystack = if (caseSensitive) text else text.lowercase()
+            val needle = if (caseSensitive) query else query.lowercase()
+            buildList {
+                var from = 0
+                while (from <= haystack.length - needle.length) {
+                    val idx = haystack.indexOf(needle, from)
+                    if (idx == -1) break
+                    add(idx until (idx + needle.length))
+                    from = idx + needle.length.coerceAtLeast(1)
+                }
+            }
+        }
+        val cursorPos = _uiState.value.text.selection.start
+        val nextIndex = if (ranges.isEmpty()) -1 else {
+            ranges.indexOfFirst { it.first >= cursorPos }.let { if (it == -1) 0 else it }
+        }
+        _uiState.value = _uiState.value.copy(
+            findQuery = query, matchCaseSensitive = caseSensitive,
+            matchRanges = ranges, currentMatchIndex = nextIndex,
+        )
+        if (nextIndex >= 0) moveCursorTo(ranges[nextIndex].first)
+    }
+
+    fun findNext() {
+        val s = _uiState.value
+        if (s.matchRanges.isEmpty()) return
+        val next = (s.currentMatchIndex + 1) % s.matchRanges.size
+        _uiState.value = s.copy(currentMatchIndex = next)
+        moveCursorTo(s.matchRanges[next].first)
+    }
+
+    fun findPrevious() {
+        val s = _uiState.value
+        if (s.matchRanges.isEmpty()) return
+        val prev = (s.currentMatchIndex - 1 + s.matchRanges.size) % s.matchRanges.size
+        _uiState.value = s.copy(currentMatchIndex = prev)
+        moveCursorTo(s.matchRanges[prev].first)
+    }
+
+    fun setReplaceText(text: String) {
+        _uiState.value = _uiState.value.copy(replaceText = text)
+    }
+
+    /** Replaces just the current match, then re-searches so the match list and
+     *  cursor stay correct against the now-shifted text (every offset after the
+     *  edit point moves by the length difference between old/new text). */
+    fun replaceCurrent() {
+        val s = _uiState.value
+        if (s.currentMatchIndex !in s.matchRanges.indices) return
+        val range = s.matchRanges[s.currentMatchIndex]
+        val newText = s.text.text.replaceRange(range.first, range.last + 1, s.replaceText)
+        val newCursor = range.first + s.replaceText.length
+        onTextChanged(TextFieldValue(newText, TextRange(newCursor, newCursor)))
+        setFindQuery(s.findQuery, s.matchCaseSensitive)
+    }
+
+    fun replaceAll() {
+        val s = _uiState.value
+        if (s.matchRanges.isEmpty()) return
+        val builder = StringBuilder()
+        var last = 0
+        for (range in s.matchRanges) {
+            builder.append(s.text.text, last, range.first)
+            builder.append(s.replaceText)
+            last = range.last + 1
+        }
+        builder.append(s.text.text, last, s.text.text.length)
+        val newText = builder.toString()
+        onTextChanged(TextFieldValue(newText, TextRange(0, 0)))
+        setFindQuery("", s.matchCaseSensitive) // matches are gone — clear rather than show stale ranges
+    }
+
     fun selectAll() {
         val current = _uiState.value.text
         _uiState.value = _uiState.value.copy(
@@ -235,6 +341,7 @@ fun FileEditorScreen(
     repoId: Long,
     relativePath: String,
     onBack: () -> Unit,
+    initialLine: Int = 0,
     vm: FileEditorViewModel = viewModel(),
 ) {
     val state by vm.uiState.collectAsState()
@@ -253,8 +360,27 @@ fun FileEditorScreen(
         state.message?.let { snack.showSnackbar(it); vm.dismissMessage() }
     }
 
+    // Jump straight to the line a caller (e.g. the Problems list) asked to open at,
+    // once the file has actually finished loading — before that, state.text is empty
+    // and there's nothing to jump to yet.
+    LaunchedEffect(state.isLoading) {
+        if (!state.isLoading && initialLine > 0 && !state.isBinaryOrTooLarge) {
+            val offset = offsetForLineCol(state.text.text, initialLine, 1)
+            vm.moveCursorTo(offset)
+            val targetPx = with(density) { (EditorLineHeight.toPx() * (initialLine - 1) - 80).coerceAtLeast(0f) }
+            editorScrollState.animateScrollTo(targetPx.toInt())
+        }
+    }
+
     val (currentLine, currentCol) = remember(state.text.selection.start, state.text.text) {
         lineColForOffset(state.text.text, state.text.selection.start)
+    }
+
+    LaunchedEffect(state.currentMatchIndex, state.matchRanges) {
+        val range = state.matchRanges.getOrNull(state.currentMatchIndex) ?: return@LaunchedEffect
+        val (line, _) = lineColForOffset(state.text.text, range.first)
+        val targetPx = with(density) { (EditorLineHeight.toPx() * (line - 1) - 80).coerceAtLeast(0f) }
+        editorScrollState.animateScrollTo(targetPx.toInt())
     }
 
     Scaffold(
@@ -303,6 +429,11 @@ fun FileEditorScreen(
                                 IconButton(onClick = { showOverflow = true }) { Icon(Icons.Filled.MoreVert, "More") }
                                 DropdownMenu(expanded = showOverflow, onDismissRequest = { showOverflow = false }) {
                                     DropdownMenuItem(
+                                        text = { Text("Find…") },
+                                        leadingIcon = { Icon(Icons.Filled.Search, null) },
+                                        onClick = { showOverflow = false; vm.toggleFind() },
+                                    )
+                                    DropdownMenuItem(
                                         text = { Text("Go to line…") },
                                         leadingIcon = { Icon(Icons.Filled.MyLocation, null) },
                                         onClick = { showOverflow = false; showGoToLine = true },
@@ -317,6 +448,9 @@ fun FileEditorScreen(
                         }
                     },
                 )
+                if (state.showFind && !state.isBinaryOrTooLarge && !state.isLoading) {
+                    FindBar(state = state, vm = vm)
+                }
             }
         },
         snackbarHost = { SnackbarHost(snack) { d -> Snackbar(d) } },
@@ -344,6 +478,8 @@ fun FileEditorScreen(
                     language = language,
                     verticalScrollState = editorScrollState,
                     modifier = Modifier.fillMaxSize().imePadding(),
+                    matchRanges = state.matchRanges,
+                    currentMatchIndex = state.currentMatchIndex,
                 )
             }
         }
@@ -411,5 +547,70 @@ fun FileEditorScreen(
             },
             dismissButton = { TextButton(onClick = { showPushDialog = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/**
+ * Find/replace bar shown under the top app bar. Kept as its own row (not a
+ * dialog) so it doesn't block seeing the highlighted matches in the editor
+ * behind it while you type a query.
+ */
+@Composable
+private fun FindBar(state: EditorUiState, vm: FileEditorViewModel) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    Surface(tonalElevation = 4.dp, shadowElevation = 4.dp) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = state.findQuery,
+                    onValueChange = { vm.setFindQuery(it) },
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                    singleLine = true,
+                    placeholder = { Text("Find") },
+                    trailingIcon = {
+                        if (state.matchRanges.isNotEmpty()) {
+                            Text(
+                                "${state.currentMatchIndex + 1}/${state.matchRanges.size}",
+                                style = MaterialTheme.typography.labelSmall, color = StatusClean,
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                        } else if (state.findQuery.isNotEmpty()) {
+                            Text("0/0", style = MaterialTheme.typography.labelSmall, color = StatusDeleted, modifier = Modifier.padding(end = 8.dp))
+                        }
+                    },
+                )
+                IconButton(onClick = vm::findPrevious, enabled = state.matchRanges.isNotEmpty()) {
+                    Icon(Icons.Filled.KeyboardArrowUp, "Previous match")
+                }
+                IconButton(onClick = vm::findNext, enabled = state.matchRanges.isNotEmpty()) {
+                    Icon(Icons.Filled.KeyboardArrowDown, "Next match")
+                }
+                IconButton(onClick = vm::toggleMatchCase) {
+                    Icon(
+                        Icons.Filled.TextFields, "Match case",
+                        tint = if (state.matchCaseSensitive) CommandBlue else LocalContentColor.current,
+                    )
+                }
+                IconButton(onClick = vm::toggleReplace) {
+                    Icon(Icons.Filled.FindReplace, "Replace", tint = if (state.showReplace) CommandBlue else LocalContentColor.current)
+                }
+                IconButton(onClick = vm::toggleFind) { Icon(Icons.Filled.Close, "Close find") }
+            }
+            if (state.showReplace) {
+                Row(Modifier.padding(top = 6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = state.replaceText,
+                        onValueChange = vm::setReplaceText,
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        placeholder = { Text("Replace with") },
+                    )
+                    TextButton(onClick = vm::replaceCurrent, enabled = state.matchRanges.isNotEmpty()) { Text("Replace") }
+                    TextButton(onClick = vm::replaceAll, enabled = state.matchRanges.isNotEmpty()) { Text("All") }
+                }
+            }
+        }
     }
 }

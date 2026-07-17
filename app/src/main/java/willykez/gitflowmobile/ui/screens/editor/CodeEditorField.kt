@@ -84,6 +84,8 @@ fun CodeEditorField(
     language: CodeLanguage,
     verticalScrollState: ScrollState,
     modifier: Modifier = Modifier,
+    matchRanges: List<IntRange> = emptyList(),
+    currentMatchIndex: Int = -1,
 ) {
     val syntaxColors = currentSyntaxColors()
     val lineCount = remember(value.text) { value.text.count { it == '\n' } + 1 }
@@ -144,7 +146,7 @@ fun CodeEditorField(
                     .horizontalScroll(horizontalScrollState)
                     .padding(12.dp),
                 textStyle = codeTextStyle,
-                visualTransformation = SyntaxHighlightTransformation(language, syntaxColors),
+                visualTransformation = SyntaxHighlightTransformation(language, syntaxColors, matchRanges, currentMatchIndex),
                 // No `singleLine`/maxLines cap (this is a multi-line editor). No explicit
                 // "no wrap" flag exists on this overload — `horizontalScroll` above gives
                 // this field unbounded width instead, so each logical line measures at

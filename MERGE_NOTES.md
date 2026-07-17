@@ -177,3 +177,71 @@ into this for Edit mode). Added `MARKDOWN -> emptyList()`, same as
   on its own line is dropped instead of showing as raw `<...>` text. This
   isn't general HTML rendering — just enough to stop badge blocks from
   showing as tag soup, which is the common case in real READMEs.
+
+## Editor / code-viewing depth: find-in-file, better diffs, TODO list
+
+- **Find & replace in file** (editor overflow menu → "Find…"): live match
+  highlighting as you type, next/prev, case-sensitivity toggle, replace-one
+  and replace-all. Matches are computed in `FileEditorViewModel` and
+  rendered by extending `highlightText`/`SyntaxHighlightTransformation`
+  (in `SyntaxHighlighting.kt`) with an independent match-background pass —
+  it applies even in `PLAIN`/`MARKDOWN` files, since find should work
+  regardless of syntax-highlighting support. New tokens
+  `matchHighlight`/`currentMatchHighlight` added to `SyntaxColorSet`.
+- **Diff viewer rewrite** (`DiffScreen.kt`): added old/new line-number
+  gutters, syntax highlighting on the actual code content (reusing the
+  editor's `highlightText`), collapsible per-file sections for multi-file
+  commit diffs, and — the real bug fix in here — replaced hardcoded
+  `Color(0xFF1A3A1A)`-style dark-only backgrounds with translucent tints
+  over the theme surface, so it's correct in light mode too (same class of
+  bug as the earlier GlassCard/TopAppBar issues). Diff parsing
+  (`DiffHunk`/`DiffLine`/`parseDiff`) moved out to `git/DiffParsing.kt` so
+  it's shared with hunk staging below, instead of living privately inside
+  the diff screen's ViewModel.
+- **Problems list** (new `ProblemsScreen`, reachable from Changes → ⋮ →
+  Manage → "Problems"): scans the repo's working tree (skipping `.git` and
+  binary-looking extensions, capped at 5,000 files / 1 MB each) for
+  `TODO`/`FIXME`/`XXX`/`HACK` markers, lists them grouped by file, and
+  tapping one opens the editor at that exact line. This needed the editor
+  route to gain an optional `?line=` param
+  (`Routes.editor(id, path, line)`) — existing call sites are unaffected
+  since it defaults to 0 (no jump).
+
+## Git workflow depth: hunk-level staging ("git add -p")
+
+Added to `GitEngine.kt`: `stageHunk(git, path, hunk)` and
+`discardHunk(git, path, hunk)`, wired into the diff viewer as **Stage** /
+**Discard** buttons on each hunk header — but only when viewing the
+*unstaged* diff (index vs. working tree), where hunk actions are
+unambiguous.
+
+**How it works**: JGit doesn't expose a hunk-granularity "apply" primitive,
+so this hand-reconstructs the target file content — reads the current
+index blob (or working-tree file, for discard), applies just the chosen
+hunk's added/removed/context lines at the hunk's recorded old-side
+position, and writes the result back as a new index entry (via
+`DirCacheEditor` + a freshly inserted blob) or straight to the working-tree
+file. Every other staged/unstaged change to that file is left untouched.
+After either action, the diff view re-fetches from git rather than
+patching local state — hunk actions shift every later hunk's line numbers
+in that file, and re-fetching is the only way to guarantee the UI matches
+what git actually now has.
+
+**This is the least-tested part of everything built today** — it's
+hand-rolled patch application, not a single well-worn JGit call, and it
+writes directly to the index/working tree. Test it against a throwaway
+repo (or a repo you don't mind restoring from a backup/remote) before
+trusting it on real uncommitted work. If a hunk action ever produces
+unexpected content, `git status`/`git diff` from a regular terminal will
+show exactly what happened, and `git checkout -- <file>` /
+`git reset HEAD -- <file>` recover cleanly either way since nothing here
+touches commits or refs.
+
+## Not in this pass: interactive rebase
+
+Scoped but deliberately not rushed into this same batch — reordering/
+squashing/dropping commits via JGit's `RebaseCommand.InteractiveHandler`
+plus a reorderable commit-list UI is a meaningfully larger, higher-stakes
+piece (it rewrites history, not just working-tree/index state), and it
+benefits from its own focused pass rather than being tacked onto an
+already-large set of changes. Next up.

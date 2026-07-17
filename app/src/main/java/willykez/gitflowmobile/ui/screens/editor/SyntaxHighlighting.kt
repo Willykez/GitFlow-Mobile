@@ -142,35 +142,51 @@ private fun rulesFor(lang: CodeLanguage): List<Rule> = when (lang) {
 }
 
 /**
- * Builds a highlighted [AnnotatedString] for [text] given [lang]. Keywords
- * (for C-style/Python) are matched separately by a manual word scan, since
- * "match a keyword but not inside a longer identifier" needs word-boundary
- * checks a single shared regex list handles awkwardly.
+ * Builds a highlighted [AnnotatedString] for [text] given [lang], optionally
+ * overlaying find-match backgrounds. The two passes are independent — match
+ * highlighting applies even for [CodeLanguage.PLAIN]/[CodeLanguage.MARKDOWN],
+ * since find-in-file should work in any text file regardless of syntax
+ * coloring support.
  */
-fun highlightText(text: String, lang: CodeLanguage, colors: SyntaxColorSet): AnnotatedString {
-    if (lang == CodeLanguage.PLAIN || lang == CodeLanguage.MARKDOWN || text.isEmpty()) return AnnotatedString(text)
-
-    // Cap highlighting to a sane size — a multi-MB file re-running several
-    // regexes on every keystroke would visibly lag typing. Past this size
-    // the file still opens and edits fine, just without color.
-    if (text.length > 300_000) return AnnotatedString(text)
+fun highlightText(
+    text: String,
+    lang: CodeLanguage,
+    colors: SyntaxColorSet,
+    matchRanges: List<IntRange> = emptyList(),
+    currentMatchIndex: Int = -1,
+): AnnotatedString {
+    if (text.isEmpty()) return AnnotatedString(text)
 
     return AnnotatedString.Builder(text).apply {
-        // Word-boundary keyword pass for languages that have keywords.
-        if (lang == CodeLanguage.KOTLIN_JAVA_C_STYLE || lang == CodeLanguage.PYTHON) {
-            Regex("""\b[A-Za-z_][A-Za-z0-9_]*\b""").findAll(text).forEach { m ->
-                if (m.value in CStyleKeywords) {
-                    addStyle(SpanStyle(color = colors.keyword), m.range.first, m.range.last + 1)
+        // Cap highlighting to a sane size — a multi-MB file re-running several
+        // regexes on every keystroke would visibly lag typing. Past this size
+        // the file still opens and edits fine, just without color.
+        val withinHighlightBudget = text.length <= 300_000
+        if (withinHighlightBudget && lang != CodeLanguage.PLAIN && lang != CodeLanguage.MARKDOWN) {
+            // Word-boundary keyword pass for languages that have keywords.
+            if (lang == CodeLanguage.KOTLIN_JAVA_C_STYLE || lang == CodeLanguage.PYTHON) {
+                Regex("""\b[A-Za-z_][A-Za-z0-9_]*\b""").findAll(text).forEach { m ->
+                    if (m.value in CStyleKeywords) {
+                        addStyle(SpanStyle(color = colors.keyword), m.range.first, m.range.last + 1)
+                    }
+                }
+            }
+            rulesFor(lang).forEach { rule ->
+                rule.pattern.findAll(text).forEach { m ->
+                    addStyle(
+                        SpanStyle(color = rule.colorOf(colors), fontStyle = if (rule.italic) FontStyle.Italic else FontStyle.Normal),
+                        m.range.first, m.range.last + 1,
+                    )
                 }
             }
         }
-        rulesFor(lang).forEach { rule ->
-            rule.pattern.findAll(text).forEach { m ->
-                addStyle(
-                    SpanStyle(color = rule.colorOf(colors), fontStyle = if (rule.italic) FontStyle.Italic else FontStyle.Normal),
-                    m.range.first, m.range.last + 1,
-                )
-            }
+        matchRanges.forEachIndexed { idx, range ->
+            if (range.isEmpty()) return@forEachIndexed
+            val isCurrent = idx == currentMatchIndex
+            addStyle(
+                SpanStyle(background = if (isCurrent) colors.currentMatchHighlight else colors.matchHighlight),
+                range.first, (range.last + 1).coerceAtMost(text.length),
+            )
         }
     }.toAnnotatedString()
 }
@@ -185,9 +201,11 @@ fun highlightText(text: String, lang: CodeLanguage, colors: SyntaxColorSet): Ann
 class SyntaxHighlightTransformation(
     private val lang: CodeLanguage,
     private val colors: SyntaxColorSet,
+    private val matchRanges: List<IntRange> = emptyList(),
+    private val currentMatchIndex: Int = -1,
 ) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
-        val highlighted = highlightText(text.text, lang, colors)
+        val highlighted = highlightText(text.text, lang, colors, matchRanges, currentMatchIndex)
         return TransformedText(highlighted, OffsetMapping.Identity)
     }
 }

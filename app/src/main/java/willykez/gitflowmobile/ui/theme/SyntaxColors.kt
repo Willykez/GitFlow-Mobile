@@ -22,6 +22,8 @@ data class SyntaxColorSet(
     val tag: Color,       // XML/HTML tag names
     val attribute: Color, // XML/HTML attribute names
     val plain: Color,
+    val matchHighlight: Color,        // find-in-file: other matches
+    val currentMatchHighlight: Color, // find-in-file: the match you're on
 )
 
 private val DarkSyntax = SyntaxColorSet(
@@ -35,6 +37,8 @@ private val DarkSyntax = SyntaxColorSet(
     tag = Color(0xFF6FB6FF),
     attribute = Color(0xFF7EE0C3),
     plain = Color(0xFFE7EAF0),
+    matchHighlight = Color(0x554FB6FF),        // translucent command blue
+    currentMatchHighlight = Color(0xAAF2B33D), // solid-ish gold — the one you're on stands out
 )
 
 private val LightSyntax = SyntaxColorSet(
@@ -48,6 +52,8 @@ private val LightSyntax = SyntaxColorSet(
     tag = Color(0xFF0B5FA8),
     attribute = Color(0xFF0E7A5F),
     plain = Color(0xFF11151C),
+    matchHighlight = Color(0x664FB6FF),
+    currentMatchHighlight = Color(0xAAF2B33D),
 )
 
 @Composable
