@@ -47,7 +47,7 @@ jobs:
             echo "::warning::No KEYSTORE_B64 secret found — generating temporary keystore."
 
             KEYSTORE_PASSWORD=$(openssl rand -hex 16)
-            KEY_ALIAS="gitflowmobile"
+            KEY_ALIAS="upload"
 
             keytool -genkeypair \
               -v \
