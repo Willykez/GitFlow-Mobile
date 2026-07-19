@@ -114,6 +114,7 @@ class ProblemsViewModel(app: Application) : AndroidViewModel(app) {
     fun dismiss() { _state.value = _state.value.copy(message = null) }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProblemsScreen(
     repoId: Long,
