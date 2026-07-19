@@ -41,12 +41,14 @@ jobs:
             echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > "$KEYSTORE_PATH"
 
             KEYSTORE_PASSWORD="${{ secrets.STORE_PASSWORD }}"
-            KEY_ALIAS="${{ secrets.KEY_PASSWORD }}"
+            KEY_ALIAS="${{ secrets.KEY_ALIAS }}"
+            KEY_PASSWORD="${{ secrets.KEY_PASSWORD }}"
 
           else
             echo "::warning::No KEYSTORE_B64 secret found — generating temporary keystore."
 
             KEYSTORE_PASSWORD=$(openssl rand -hex 16)
+            KEY_PASSWORD="$KEYSTORE_PASSWORD"
             KEY_ALIAS="upload"
 
             keytool -genkeypair \
@@ -58,13 +60,15 @@ jobs:
               -keysize 2048 \
               -validity 10000 \
               -storepass "$KEYSTORE_PASSWORD" \
-              -keypass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
               -dname "CN=GitFlowMobile, OU=GitFlowMobile, O=GitFlowMobile, L=Unknown, S=Unknown, C=TZ"
           fi
 
           echo "::add-mask::$KEYSTORE_PASSWORD"
+          echo "::add-mask::$KEY_PASSWORD"
 
           echo "keystore_password=$KEYSTORE_PASSWORD" >> "$GITHUB_OUTPUT"
+          echo "key_password=$KEY_PASSWORD" >> "$GITHUB_OUTPUT"
           echo "keystore_path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
           echo "key_alias=$KEY_ALIAS" >> "$GITHUB_OUTPUT"
 
@@ -74,7 +78,7 @@ jobs:
             -PGITFLOWMOBILE_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
             -PGITFLOWMOBILE_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
             -PGITFLOWMOBILE_RELEASE_KEY_ALIAS="${{ steps.keystore.outputs.key_alias }}" \
-            -PGITFLOWMOBILE_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
+            -PGITFLOWMOBILE_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.key_password }}" \
             --no-daemon
 
       - name: Locate the built APK
@@ -82,11 +86,16 @@ jobs:
         run: |
           APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n1)
 
-          echo "Found: $APK_PATH"
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK found!"
+            exit 1
+          fi
+
+          echo "Found APK: $APK_PATH"
 
           echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK as a workflow artifact
+      - name: Upload APK as workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: gitflowmobile-release-apk
