@@ -335,3 +335,45 @@ highest-stakes items — both touch commit history / repo structure more
 deeply than anything shipped today, and both deliberately still deserve
 their own focused pass rather than being appended to an already-large
 batch.
+
+## Fix: "Authentication is required but no CredentialsProvider has been registered"
+
+Two related causes, both fixed:
+
+1. **Real bug** in Discover's clone flow: when saving the cloned repo to the
+   database, the selected credential was only kept if `repo.private` was
+   true — `credentialId = if (repo.private) (credentialId ?: 0L) else 0L`.
+   Cloning a *public* repo genuinely needs no auth, but **pushing** to it
+   later always does, and picking a credential during clone is a signal
+   the person intends to push (most people don't browse credential
+   dropdowns for repos they're only going to read). Every repo cloned via
+   Discover with a credential selected — public or private — was silently
+   losing that association the moment it was saved, which is exactly the
+   error in the screenshot. Fixed: the credential is kept regardless of
+   `private`.
+2. **Missing capability** for locally-detected repos: `LocalRepoScanner`
+   (added earlier this session) registers repos with no way to attach a
+   credential at all, since auto-detection doesn't prompt for one. There
+   was also no way to *fix* a repo that got the bug above before this fix
+   shipped.
+
+Both are addressed by one new feature: **"Set credential…"** in each
+repo's "⋮" menu on the home screen — a simple picker (None + every saved
+credential) that updates the repo's `credentialId` directly via
+`RepoRepository.updateRepo`. This covers all three cases: locally-detected
+repos, repos cloned before this fix, and just changing which saved
+credential a repo uses going forward.
+
+**If you're hitting this on an already-cloned repo**: this code fix alone
+won't retroactively repair it — use "Set credential…" on that repo once
+to attach one, and pushes should work after that.
+
+## Persistent release signing
+
+`release.yml` now signs with a real, persistent keystore if you've set up
+the `RELEASE_KEYSTORE_BASE64` / `RELEASE_KEYSTORE_PASSWORD` /
+`RELEASE_KEY_ALIAS` repo secrets (see README.md → Signing for the full
+setup steps), and transparently falls back to the old throwaway-keystore
+behavior — with a visible `::warning::` in the run log — if those secrets
+aren't set. No breaking change for anyone who hasn't set this up yet;
+this only changes behavior once the secrets exist.

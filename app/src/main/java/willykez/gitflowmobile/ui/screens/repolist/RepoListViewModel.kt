@@ -26,6 +26,7 @@ data class RepoListUiState(
     /** Uncommitted (staged + unstaged) file count per repo id, for the list badge. Absent
      * key = not computed yet (e.g. still opening the repo), not necessarily zero changes. */
     val changeCounts: Map<Long, Int> = emptyMap(),
+    val credentials: List<willykez.gitflowmobile.data.repository.DecryptedCredential> = emptyList(),
 ) {
     /** Repos filtered by [searchQuery] (name or clone URL, case-insensitive) and sorted by
      * [sortMode]. Computed here rather than stored separately so there's exactly one source
@@ -56,13 +57,14 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
     private val searchQuery = MutableStateFlow("")
     private val sortMode = MutableStateFlow(RepoSortMode.RECENT)
     private val changeCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
+    private val credentials = MutableStateFlow<List<willykez.gitflowmobile.data.repository.DecryptedCredential>>(emptyList())
 
     private val filters = combine(searchQuery, sortMode, changeCounts) { q, s, c -> Triple(q, s, c) }
 
     val uiState: StateFlow<RepoListUiState> = combine(
-        repoRepository.allRepos, busyRepoId, snackbarMessage, filters,
-    ) { repos, busy, msg, (query, sort, counts) ->
-        RepoListUiState(repos, busy, msg, query, sort, counts)
+        repoRepository.allRepos, busyRepoId, snackbarMessage, filters, credentials,
+    ) { repos, busy, msg, (query, sort, counts), creds ->
+        RepoListUiState(repos, busy, msg, query, sort, counts, creds)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RepoListUiState())
 
     init {
@@ -78,6 +80,7 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         scanForLocalRepos()
+        viewModelScope.launch { credentials.value = credentialRepository.getAll() }
     }
 
     /** Looks for repos that exist on disk but aren't tracked yet (dropped in via a
@@ -162,6 +165,25 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
     fun pushForce(repo: RepoEntity) = remoteOp(repo) { git, cred ->
         GitEngine.push(git, force = true, credential = cred).also { r ->
             if (r is GitResult.Success) snackbarMessage.value = "Force pushed ${repo.name}"
+        }
+    }
+
+    /** Attaches (or clears) a saved credential on an existing repo — the fix-up path for
+     *  repos that don't have one yet: locally-detected repos (never had a chance to pick
+     *  one) and anything cloned before credential attachment was fixed for public repos. */
+    /** Called right before showing the credential picker — the initial load in
+     *  `init{}` only runs once per ViewModel lifetime, and Navigation Compose
+     *  keeps this ViewModel alive while navigating to/from Credentials, so
+     *  without this a credential added in that other screen wouldn't show up
+     *  here until the app restarted. */
+    fun refreshCredentials() {
+        viewModelScope.launch { credentials.value = credentialRepository.getAll() }
+    }
+
+    fun setCredential(repo: RepoEntity, credentialId: Long?) {
+        viewModelScope.launch {
+            repoRepository.updateRepo(repo.copy(credentialId = credentialId ?: 0L))
+            snackbarMessage.value = if (credentialId == null) "Credential removed from ${repo.name}" else "Credential set for ${repo.name}"
         }
     }
 

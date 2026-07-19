@@ -38,58 +38,67 @@ jobs:
           gradle-version: "8.7"
 
       # ----------------------------------------------------------------
-      # Generate a throwaway signing keystore for this build.
+      # Signing keystore.
       #
-      # This is NOT the same keystore between runs — every run of this
-      # workflow signs the APK with a fresh, randomly-generated key. That's
-      # fine for installing on your own device(s) (Android just needs *a*
-      # valid signature, doesn't care whose), but it means:
-      #   - You can't publish updates to the Play Store this way (Play
-      #     requires the same signing key on every update).
-      #   - If you uninstall and reinstall from a different workflow run,
-      #     Android will treat it as a different app if you ever try to
-      #     upgrade in place rather than reinstall (mismatched signatures
-      #     block updates-in-place, same as any Android app).
-      # If you want a stable, reusable signing key instead, generate one
-      # keystore yourself, base64-encode it into a GitHub secret, and swap
-      # the "Generate keystore" step below for one that decodes the secret
-      # instead of calling keytool.
+      # If RELEASE_KEYSTORE_BASE64 is set as a repo secret, this decodes and
+      # uses that real, persistent keystore — every build is signed with the
+      # same key, so updates install in place and (eventually) this could
+      # ship to the Play Store.
+      #
+      # If that secret isn't set yet, this falls back to generating a
+      # throwaway keystore instead, same as before: fine for installing on
+      # your own device(s), but a fresh random key every run means you can't
+      # update in place across runs, and it could never go to the Play
+      # Store. See README.md → "Signing" for how to generate and add the
+      # real keystore secret.
       # ----------------------------------------------------------------
-      - name: Generate signing keystore
+      - name: Set up signing keystore
         id: keystore
+        env:
+          HAS_PERSISTENT_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
         run: |
-          # NOTE: modern `keytool` defaults to a PKCS12 keystore, and PKCS12
-          # requires the store password and key password to be IDENTICAL —
-          # using two different random passwords here causes a confusing
-          # "Given final block not properly padded" error later, when the
-          # build tries to open the key with a different password than the
-          # store was encrypted with. So: one password, used for both.
-          KEYSTORE_PASSWORD=$(openssl rand -hex 16)
           KEYSTORE_PATH="$RUNNER_TEMP/gitflowmobile-release.keystore"
 
-          keytool -genkeypair \
-            -v \
-            -storetype PKCS12 \
-            -keystore "$KEYSTORE_PATH" \
-            -alias gitflowmobile \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass "$KEYSTORE_PASSWORD" \
-            -keypass "$KEYSTORE_PASSWORD" \
-            -dname "CN=GitFlowMobile, OU=GitFlowMobile, O=GitFlowMobile, L=Unknown, S=Unknown, C=TZ"
+          if [ "$HAS_PERSISTENT_KEYSTORE" = "true" ]; then
+            echo "Using persistent keystore from repo secrets."
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_PATH"
+            KEYSTORE_PASSWORD="${{ secrets.RELEASE_KEYSTORE_PASSWORD }}"
+            KEY_ALIAS="${{ secrets.RELEASE_KEY_ALIAS }}"
+          else
+            echo "::warning::No RELEASE_KEYSTORE_BASE64 secret found — signing with a throwaway keystore. This build won't be able to update in place over a previous install signed the same way, and can't go to the Play Store. See README.md → Signing."
+            # NOTE: modern `keytool` defaults to a PKCS12 keystore, and PKCS12
+            # requires the store password and key password to be IDENTICAL —
+            # using two different random passwords here causes a confusing
+            # "Given final block not properly padded" error later, when the
+            # build tries to open the key with a different password than the
+            # store was encrypted with. So: one password, used for both.
+            KEYSTORE_PASSWORD=$(openssl rand -hex 16)
+            KEY_ALIAS="gitflowmobile"
+            keytool -genkeypair \
+              -v \
+              -storetype PKCS12 \
+              -keystore "$KEYSTORE_PATH" \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEYSTORE_PASSWORD" \
+              -dname "CN=GitFlowMobile, OU=GitFlowMobile, O=GitFlowMobile, L=Unknown, S=Unknown, C=TZ"
+          fi
 
           # Mask the password in logs, then hand it to later steps.
           echo "::add-mask::$KEYSTORE_PASSWORD"
           echo "keystore_password=$KEYSTORE_PASSWORD" >> "$GITHUB_OUTPUT"
           echo "keystore_path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
+          echo "key_alias=$KEY_ALIAS" >> "$GITHUB_OUTPUT"
 
       - name: Build release APK (shrunk + signed)
         run: |
           gradle assembleRelease \
             -PGITFLOWMOBILE_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
             -PGITFLOWMOBILE_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
-            -PGITFLOWMOBILE_RELEASE_KEY_ALIAS="gitflowmobile" \
+            -PGITFLOWMOBILE_RELEASE_KEY_ALIAS="${{ steps.keystore.outputs.key_alias }}" \
             -PGITFLOWMOBILE_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
             --no-daemon
 

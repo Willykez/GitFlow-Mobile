@@ -130,7 +130,12 @@ class DiscoverViewModel(app: Application) : AndroidViewModel(app) {
                             fullSavePath = destination.absolutePath,
                             cloneUrl = repo.cloneUrl,
                             branch = repo.defaultBranch,
-                            credentialId = if (repo.private) (credentialId ?: 0L) else 0L,
+                            // Keep the credential regardless of repo.private: cloning a public
+                            // repo needs no auth, but *pushing* to it later always does — and
+                            // picking a credential here is a signal the person intends to push,
+                            // not just browse. Discarding it for public repos was the bug behind
+                            // "Authentication is required but no CredentialsProvider" on push.
+                            credentialId = credentialId ?: 0L,
                         ),
                     )
                     _state.value = _state.value.copy(cloningFullName = null, message = "Cloned $name")

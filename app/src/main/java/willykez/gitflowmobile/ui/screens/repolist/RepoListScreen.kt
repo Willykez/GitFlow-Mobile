@@ -2,6 +2,7 @@ package willykez.gitflowmobile.ui.screens.repolist
 
 import android.os.Build
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,6 +43,7 @@ fun RepoListScreen(
     var repoPendingDelete by remember { mutableStateOf<RepoEntity?>(null) }
     var repoPendingPullForce by remember { mutableStateOf<RepoEntity?>(null) }
     var repoPendingPushForce by remember { mutableStateOf<RepoEntity?>(null) }
+    var repoPendingCredential by remember { mutableStateOf<RepoEntity?>(null) }
     var showCloneSheet by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -151,6 +153,7 @@ fun RepoListScreen(
                             onFetch = { vm.fetch(repo) },
                             onRequestPullForce = { repoPendingPullForce = repo },
                             onRequestPushForce = { repoPendingPushForce = repo },
+                            onSetCredential = { vm.refreshCredentials(); repoPendingCredential = repo },
                         )
                     }
                 }
@@ -187,6 +190,45 @@ fun RepoListScreen(
             confirmLabel = "Force Push", danger = true,
             onConfirm = { vm.pushForce(repo); repoPendingPushForce = null },
             onDismiss = { repoPendingPushForce = null },
+        )
+    }
+
+    repoPendingCredential?.let { repo ->
+        AlertDialog(
+            onDismissRequest = { repoPendingCredential = null },
+            title = { Text("Credential for ${repo.name}") },
+            text = {
+                if (state.credentials.isEmpty()) {
+                    Text("No saved credentials yet. Add one from Credentials first.")
+                } else {
+                    Column {
+                        Text(
+                            "Used for fetch/push on this repo — needed even for a public repo if you intend to push to it.",
+                            style = MaterialTheme.typography.bodySmall, color = StatusClean,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        Row(
+                            Modifier.fillMaxWidth().clickable { vm.setCredential(repo, null); repoPendingCredential = null }.padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = repo.credentialId == 0L, onClick = { vm.setCredential(repo, null); repoPendingCredential = null })
+                            Spacer(Modifier.width(8.dp))
+                            Text("None")
+                        }
+                        state.credentials.forEach { cred ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { vm.setCredential(repo, cred.id); repoPendingCredential = null }.padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = repo.credentialId == cred.id, onClick = { vm.setCredential(repo, cred.id); repoPendingCredential = null })
+                                Spacer(Modifier.width(8.dp))
+                                Text(cred.name)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { repoPendingCredential = null }) { Text("Done") } },
         )
     }
 
@@ -249,6 +291,7 @@ private fun RepoCard(
     onTap: () -> Unit, onLongPress: () -> Unit,
     onPull: () -> Unit, onPush: () -> Unit,
     onFetch: () -> Unit, onRequestPullForce: () -> Unit, onRequestPushForce: () -> Unit,
+    onSetCredential: () -> Unit,
 ) {
     var showMore by remember { mutableStateOf(false) }
     val hasError = repo.lastError.isNotBlank()
@@ -294,6 +337,9 @@ private fun RepoCard(
                             leadingIcon = { Icon(Icons.Filled.Warning, null, tint = StatusDeleted) })
                         DropdownMenuItem(text = { Text("Push (Force)") }, onClick = { showMore = false; onRequestPushForce() },
                             leadingIcon = { Icon(Icons.Filled.Warning, null, tint = Amber) })
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text("Set credential…") }, onClick = { showMore = false; onSetCredential() },
+                            leadingIcon = { Icon(Icons.Filled.Key, null) })
                     }
                 }
             }

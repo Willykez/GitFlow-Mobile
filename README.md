@@ -74,16 +74,58 @@ gradle assembleDebug
   errors early.
 - **`release.yml`** — runs on a `v*` tag push (or manually via **Run
   workflow**): builds a signed, shrunk release APK and attaches it to a
-  GitHub Release. Each run signs with a freshly generated throwaway
-  keystore — great for installing on your own device(s), but **not**
-  suitable for Play Store updates (which require a stable signing key
-  across releases). To use a persistent key instead, generate one yourself,
-  base64-encode it into a repo secret, and swap the "Generate signing
-  keystore" step in `release.yml` for one that decodes the secret.
+  GitHub Release. See **Signing** below for which key it signs with.
+
+## Signing
+
+`release.yml` signs with a **persistent keystore** if you've set one up
+(see below), and falls back to a **throwaway keystore** — freshly
+generated, different every run — if you haven't. The throwaway path is
+fine for installing on your own device(s), but it means every run signs
+with a different key: you can't update an existing install in place
+across runs, and it can never go to the Play Store (which requires the
+same signing key on every update, forever).
+
+### Setting up a persistent keystore
+
+1. Generate one, on your own machine — not in CI, and don't share the
+   password with anyone (including in an issue/PR):
+   ```bash
+   keytool -genkeypair -v -storetype PKCS12 \
+     -keystore gitflowmobile-release.keystore \
+     -alias gitflowmobile \
+     -keyalg RSA -keysize 2048 -validity 10000 \
+     -storepass YOUR_PASSWORD -keypass YOUR_PASSWORD \
+     -dname "CN=GitFlow Mobile, OU=GitFlow Mobile, O=GitFlow Mobile, L=Unknown, S=Unknown, C=US"
+   ```
+   Use the *same* password for `-storepass` and `-keypass` — modern
+   `keytool` defaults to PKCS12, which requires them to match.
+2. Base64-encode it:
+   - macOS: `base64 -i gitflowmobile-release.keystore -o keystore_base64.txt`
+   - Linux: `base64 -w0 gitflowmobile-release.keystore > keystore_base64.txt`
+   - Windows (PowerShell): `[Convert]::ToBase64String([IO.File]::ReadAllBytes("gitflowmobile-release.keystore")) | Out-File keystore_base64.txt`
+3. Add three repo secrets (**Settings → Secrets and variables → Actions →
+   New repository secret**):
+
+   | Secret | Value |
+   |---|---|
+   | `RELEASE_KEYSTORE_BASE64` | contents of `keystore_base64.txt` |
+   | `RELEASE_KEYSTORE_PASSWORD` | your password |
+   | `RELEASE_KEY_ALIAS` | `gitflowmobile` (or whatever alias you used) |
+
+4. **Back up the keystore file and password somewhere outside GitHub too**
+   (a password manager, not just the repo secret). There's no recovery if
+   you lose either — you'd have to ship future releases as a new app
+   identity, breaking updates for anyone who already installed a version
+   signed with the old key.
+
+Once all three secrets are set, `release.yml` picks them up automatically
+— no further changes needed.
 
 ## Permissions
 
 | Permission | Why |
+
 |---|---|
 | `INTERNET` / `ACCESS_NETWORK_STATE` | Clone, fetch, push, pull over the network |
 | All-files access (Android 11+) / `WRITE_EXTERNAL_STORAGE` (Android 10-) | Repos are stored in a **public** folder (`/storage/emulated/0/GitFlowMobile/repos`) instead of the app's private sandbox, so any file manager, other app, or PC-over-USB can reach your files directly |
