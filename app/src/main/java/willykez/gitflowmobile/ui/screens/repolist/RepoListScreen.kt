@@ -8,8 +8,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,12 +27,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import willykez.gitflowmobile.data.PublicStorage
 import willykez.gitflowmobile.data.db.entity.RepoEntity
 import willykez.gitflowmobile.ui.components.GlassCard
+import willykez.gitflowmobile.ui.components.WeaveRefreshIndicator
 import willykez.gitflowmobile.ui.screens.clone.CloneScreen
 import willykez.gitflowmobile.ui.theme.*
 import java.text.DateFormat
 import java.util.Date
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun RepoListScreen(
     onOpenRepo: (Long) -> Unit,
@@ -64,6 +68,8 @@ fun RepoListScreen(
     LaunchedEffect(state.snackbarMessage) {
         state.snackbarMessage?.let { snack.showSnackbar(it); vm.dismissSnackbar() }
     }
+
+    val pullRefreshState = rememberPullRefreshState(refreshing = state.isRefreshing, onRefresh = vm::refresh)
 
     Scaffold(
         topBar = {
@@ -120,7 +126,12 @@ fun RepoListScreen(
         },
         snackbarHost = { SnackbarHost(snack) { d -> Snackbar(d) } },
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
+        Column(Modifier.fillMaxSize().padding(pad).pullRefresh(pullRefreshState)) {
+            WeaveRefreshIndicator(
+                refreshing = state.isRefreshing,
+                progress = pullRefreshState.progress,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
             if (!hasStorageAccess) {
                 StorageAccessBanner(onGrant = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

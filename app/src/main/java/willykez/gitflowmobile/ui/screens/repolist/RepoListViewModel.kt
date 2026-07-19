@@ -27,6 +27,7 @@ data class RepoListUiState(
      * key = not computed yet (e.g. still opening the repo), not necessarily zero changes. */
     val changeCounts: Map<Long, Int> = emptyMap(),
     val credentials: List<willykez.gitflowmobile.data.repository.DecryptedCredential> = emptyList(),
+    val isRefreshing: Boolean = false,
 ) {
     /** Repos filtered by [searchQuery] (name or clone URL, case-insensitive) and sorted by
      * [sortMode]. Computed here rather than stored separately so there's exactly one source
@@ -58,13 +59,15 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
     private val sortMode = MutableStateFlow(RepoSortMode.RECENT)
     private val changeCounts = MutableStateFlow<Map<Long, Int>>(emptyMap())
     private val credentials = MutableStateFlow<List<willykez.gitflowmobile.data.repository.DecryptedCredential>>(emptyList())
+    private val isRefreshing = MutableStateFlow(false)
 
-    private val filters = combine(searchQuery, sortMode, changeCounts) { q, s, c -> Triple(q, s, c) }
+    private data class Filters(val query: String, val sort: RepoSortMode, val counts: Map<Long, Int>, val refreshing: Boolean)
+    private val filters = combine(searchQuery, sortMode, changeCounts, isRefreshing) { q, s, c, r -> Filters(q, s, c, r) }
 
     val uiState: StateFlow<RepoListUiState> = combine(
         repoRepository.allRepos, busyRepoId, snackbarMessage, filters, credentials,
-    ) { repos, busy, msg, (query, sort, counts), creds ->
-        RepoListUiState(repos, busy, msg, query, sort, counts, creds)
+    ) { repos, busy, msg, f, creds ->
+        RepoListUiState(repos, busy, msg, f.query, f.sort, f.counts, creds, f.refreshing)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RepoListUiState())
 
     init {
@@ -106,6 +109,31 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
             if (found.isNotEmpty()) {
                 val label = if (found.size == 1) "1 local repo" else "${found.size} local repos"
                 snackbarMessage.value = "Found and added $label"
+            }
+        }
+    }
+
+    /** Pull-to-refresh: re-scans for local repos (same as the automatic scan on
+     *  app open) and recomputes every repo's change count, so a manual pull
+     *  actually does something beyond what already happens automatically. */
+    fun refresh() {
+        viewModelScope.launch {
+            isRefreshing.value = true
+            val known = repoRepository.allRepos.first().map { it.fullSavePath }.toSet()
+            val root = PublicStorage.reposRootDir()
+            val found = withContext(Dispatchers.IO) { LocalRepoScanner.scan(root, known) }
+            found.forEach { candidate ->
+                repoRepository.addRepo(
+                    RepoEntity(name = candidate.name, fullSavePath = candidate.path, cloneUrl = candidate.originUrl)
+                )
+            }
+            val repos = repoRepository.allRepos.first()
+            repos.forEach { loadChangeCount(it) }
+            isRefreshing.value = false
+            snackbarMessage.value = if (found.isNotEmpty()) {
+                if (found.size == 1) "Found and added 1 local repo" else "Found and added ${found.size} local repos"
+            } else {
+                "Refreshed"
             }
         }
     }

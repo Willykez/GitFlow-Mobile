@@ -377,3 +377,48 @@ setup steps), and transparently falls back to the old throwaway-keystore
 behavior — with a visible `::warning::` in the run log — if those secrets
 aren't set. No breaking change for anyone who hasn't set this up yet;
 this only changes behavior once the secrets exist.
+
+## Signing secret names corrected
+
+The workflow originally expected `RELEASE_KEYSTORE_BASE64` /
+`RELEASE_KEYSTORE_PASSWORD` / `RELEASE_KEY_ALIAS`, but the actual repo
+secrets created were named `KEYSTORE_B64` / `STORE_PASSWORD` /
+`KEY_PASSWORD` (no alias secret at all). Rather than ask for the secrets
+to be deleted and recreated, `release.yml` now reads the names actually
+in use:
+- `KEYSTORE_B64` (base64 keystore)
+- `STORE_PASSWORD` / `KEY_PASSWORD` — both required, and **must be
+  identical** (PKCS12 requirement). The workflow now checks this
+  explicitly and fails with a clear error naming the two secrets if they
+  don't match, instead of failing later with JGit's cryptic "Given final
+  block not properly padded."
+- No `KEY_ALIAS` secret exists — defaults to `gitflowmobile` (the alias
+  the README's `keytool` example uses). If a different alias was actually
+  used when the keystore was generated, this needs either regenerating
+  with `-alias gitflowmobile`, or adding a `KEY_ALIAS` secret and one
+  more line in the workflow to read it.
+
+## Key alias corrected to "upload"
+
+`release.yml` and `README.md` now use `upload` as the signing key alias
+instead of the placeholder `gitflowmobile`, matching the real keystore.
+
+## New pull-to-refresh indicator (WeaveRefreshIndicator)
+
+New `ui/components/WeaveRefreshIndicator.kt` — a pill that stretches taller
+the further you pull, springs back with a bounce on release, instead of a
+fixed circular spinner floated over the content. Ported from a reference
+design, adapted to this app's theme (command-blue outline instead of a
+generic gray, and a shorter max stretch — 140dp instead of 220dp — sized
+for this app's row heights) and placed as a real (non-overlay) item at the
+top of a Column so content is genuinely pushed down as it grows, per the
+original design's intent.
+
+- **Changes screen**: replaced the existing Material2 `PullRefreshIndicator`
+  overlay with this — same `pullRefresh` gesture/state underneath, just a
+  different visual.
+- **Home screen (repo list)**: this screen had **no** pull-to-refresh at
+  all before — added it, wired to a new `refresh()` that re-scans for
+  local repos (same as the automatic scan on app open) and recomputes
+  every repo's change-count badge, so pulling down actually does
+  something beyond what already happens automatically on load.

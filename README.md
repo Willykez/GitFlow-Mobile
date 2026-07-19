@@ -93,7 +93,7 @@ same signing key on every update, forever).
    ```bash
    keytool -genkeypair -v -storetype PKCS12 \
      -keystore gitflowmobile-release.keystore \
-     -alias gitflowmobile \
+     -alias upload \
      -keyalg RSA -keysize 2048 -validity 10000 \
      -storepass YOUR_PASSWORD -keypass YOUR_PASSWORD \
      -dname "CN=GitFlow Mobile, OU=GitFlow Mobile, O=GitFlow Mobile, L=Unknown, S=Unknown, C=US"
@@ -104,14 +104,18 @@ same signing key on every update, forever).
    - macOS: `base64 -i gitflowmobile-release.keystore -o keystore_base64.txt`
    - Linux: `base64 -w0 gitflowmobile-release.keystore > keystore_base64.txt`
    - Windows (PowerShell): `[Convert]::ToBase64String([IO.File]::ReadAllBytes("gitflowmobile-release.keystore")) | Out-File keystore_base64.txt`
-3. Add three repo secrets (**Settings → Secrets and variables → Actions →
+3. Add repo secrets (**Settings → Secrets and variables → Actions →
    New repository secret**):
 
    | Secret | Value |
    |---|---|
-   | `RELEASE_KEYSTORE_BASE64` | contents of `keystore_base64.txt` |
-   | `RELEASE_KEYSTORE_PASSWORD` | your password |
-   | `RELEASE_KEY_ALIAS` | `gitflowmobile` (or whatever alias you used) |
+   | `KEYSTORE_B64` | contents of `keystore_base64.txt` |
+   | `STORE_PASSWORD` | your password |
+   | `KEY_PASSWORD` | the same password again — a PKCS12 keystore requires the store and key password to match, and the workflow checks this and fails fast with a clear error if they don't |
+
+   There's no key-alias secret — the workflow uses `upload` (the real
+   keystore's alias). If you ever regenerate with a different alias, say
+   so and the workflow can pick up a `KEY_ALIAS` secret instead.
 
 4. **Back up the keystore file and password somewhere outside GitHub too**
    (a password manager, not just the repo secret). There's no recovery if

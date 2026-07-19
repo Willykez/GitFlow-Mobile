@@ -11,7 +11,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material.icons.Icons
@@ -32,6 +31,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import willykez.gitflowmobile.git.GitFileEntry
 import willykez.gitflowmobile.git.GitFileStatus
 import willykez.gitflowmobile.ui.components.GlassCard
+import willykez.gitflowmobile.ui.components.WeaveRefreshIndicator
 import willykez.gitflowmobile.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalMaterialApi::class)
@@ -135,6 +135,12 @@ fun ChangesScreen(
                 .pullRefresh(pullRefreshState),
         ) {
             Column(Modifier.fillMaxSize()) {
+
+                WeaveRefreshIndicator(
+                    refreshing = state.isLoading,
+                    progress = pullRefreshState.progress,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
 
                 if (state.hasConflicts) {
                     Surface(color = StatusDeleted.copy(alpha = 0.15f)) {
@@ -243,12 +249,6 @@ fun ChangesScreen(
                     onPush = vm::push,
                 )
             }
-
-            PullRefreshIndicator(
-                refreshing = state.isLoading,
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
         }
     }
 
