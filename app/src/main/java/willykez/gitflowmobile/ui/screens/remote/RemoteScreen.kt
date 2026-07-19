@@ -20,6 +20,7 @@ import willykez.gitflowmobile.App
 import willykez.gitflowmobile.git.GitEngine
 import willykez.gitflowmobile.git.GitResult
 import willykez.gitflowmobile.git.RemoteInfo
+import willykez.gitflowmobile.ui.components.GlassCard
 import willykez.gitflowmobile.ui.screens.changes.ConfirmDialog
 import willykez.gitflowmobile.ui.theme.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -163,8 +164,7 @@ fun RemoteScreen(repoId: Long, onBack: () -> Unit, vm: RemoteViewModel = viewMod
 @Composable
 private fun RemoteRow(r: RemoteInfo, onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    GlassCard(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Cloud, null, Modifier.size(20.dp), tint = Amber)
             Spacer(Modifier.width(10.dp))

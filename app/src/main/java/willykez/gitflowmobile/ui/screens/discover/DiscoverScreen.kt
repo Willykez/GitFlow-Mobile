@@ -1,9 +1,12 @@
 package willykez.gitflowmobile.ui.screens.discover
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -14,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import willykez.gitflowmobile.data.github.GitHubRepoSummary
+import willykez.gitflowmobile.ui.components.GlassCard
 import willykez.gitflowmobile.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,6 +62,12 @@ fun DiscoverScreen(onBack: () -> Unit, vm: DiscoverViewModel = viewModel()) {
                     Icon(Icons.Filled.Person, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("My Repos")
+                }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton(onClick = vm::openCreateSheet, enabled = state.credentials.isNotEmpty()) {
+                    Icon(Icons.Filled.Add, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("New repo")
                 }
 
                 Spacer(Modifier.weight(1f))
@@ -112,22 +122,128 @@ fun DiscoverScreen(onBack: () -> Unit, vm: DiscoverViewModel = viewModel()) {
                         DiscoverRepoCard(
                             repo = repo,
                             isCloning = state.cloningFullName == repo.fullName,
+                            isDeleting = state.deletingFullName == repo.fullName,
+                            showDelete = state.showingMine,
                             onClone = { vm.cloneRepo(repo) },
+                            onDelete = { vm.requestDelete(repo) },
                         )
                     }
                 }
             }
         }
     }
+
+    if (state.showCreateSheet) {
+        CreateRepoSheet(
+            isCreating = state.isCreating,
+            onDismiss = vm::dismissCreateSheet,
+            onCreate = { name, desc, priv, cloneAfter -> vm.createRepo(name, desc, priv, cloneAfter) },
+        )
+    }
+
+    state.confirmDeleteRepo?.let { repo ->
+        AlertDialog(
+            onDismissRequest = vm::cancelDelete,
+            title = { Text("Delete on GitHub?") },
+            text = {
+                Text(
+                    "This permanently deletes ${repo.fullName} on GitHub — not just the local " +
+                        "clone, if you have one. This can't be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = vm::confirmDeleteRepo) { Text("Delete", color = StatusDeleted) }
+            },
+            dismissButton = { TextButton(onClick = vm::cancelDelete) { Text("Cancel") } },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreateRepoSheet(
+    isCreating: Boolean,
+    onDismiss: () -> Unit,
+    onCreate: (name: String, description: String, private: Boolean, cloneAfter: Boolean) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var private by remember { mutableStateOf(false) }
+    var cloneAfter by remember { mutableStateOf(true) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .imePadding()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("New repo on GitHub", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = name, onValueChange = { name = it },
+                label = { Text("Repository name") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = description, onValueChange = { description = it },
+                label = { Text("Description (optional)") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(
+                Modifier.fillMaxWidth().clickable { private = !private },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = private, onCheckedChange = { private = it })
+                Spacer(Modifier.width(4.dp))
+                Column {
+                    Text("Private")
+                    Text("Only you (and anyone you add) can see it", style = MaterialTheme.typography.labelSmall, color = StatusClean)
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().clickable { cloneAfter = !cloneAfter },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = cloneAfter, onCheckedChange = { cloneAfter = it })
+                Spacer(Modifier.width(4.dp))
+                Column {
+                    Text("Clone to this device")
+                    Text("Otherwise it's only created on GitHub", style = MaterialTheme.typography.labelSmall, color = StatusClean)
+                }
+            }
+            Button(
+                onClick = { onCreate(name.trim(), description.trim(), private, cloneAfter) },
+                enabled = !isCreating && name.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (isCreating) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Creating…")
+                } else {
+                    Text("Create")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
 }
 
 @Composable
-private fun DiscoverRepoCard(repo: GitHubRepoSummary, isCloning: Boolean, onClone: () -> Unit) {
-    Card(
+private fun DiscoverRepoCard(
+    repo: GitHubRepoSummary,
+    isCloning: Boolean,
+    isDeleting: Boolean,
+    showDelete: Boolean,
+    onClone: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    GlassCard(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(0.dp),
+        accent = if (repo.private) Amber else null,
     ) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -146,15 +262,26 @@ private fun DiscoverRepoCard(repo: GitHubRepoSummary, isCloning: Boolean, onClon
                 Text(repo.description, style = MaterialTheme.typography.bodySmall, color = StatusClean, maxLines = 2)
             }
             Spacer(Modifier.height(10.dp))
-            Button(onClick = onClone, enabled = !isCloning, modifier = Modifier.fillMaxWidth()) {
-                if (isCloning) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Cloning…")
-                } else {
-                    Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Clone")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onClone, enabled = !isCloning && !isDeleting, modifier = Modifier.weight(1f)) {
+                    if (isCloning) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Cloning…")
+                    } else {
+                        Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Clone")
+                    }
+                }
+                if (showDelete) {
+                    OutlinedButton(
+                        onClick = onDelete, enabled = !isCloning && !isDeleting,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = StatusDeleted),
+                    ) {
+                        if (isDeleting) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = StatusDeleted)
+                        else Icon(Icons.Filled.DeleteForever, "Delete on GitHub", Modifier.size(16.dp))
+                    }
                 }
             }
         }

@@ -21,6 +21,7 @@ import willykez.gitflowmobile.ui.screens.gitignore.GitignoreScreen
 import willykez.gitflowmobile.ui.screens.log.LogScreen
 import willykez.gitflowmobile.ui.screens.problems.ProblemsScreen
 import willykez.gitflowmobile.ui.screens.remote.RemoteScreen
+import willykez.gitflowmobile.ui.screens.search.RepoSearchScreen
 import willykez.gitflowmobile.ui.screens.repolist.RepoListScreen
 import willykez.gitflowmobile.ui.screens.settings.SettingsScreen
 import willykez.gitflowmobile.ui.screens.stash.StashScreen
@@ -44,6 +45,7 @@ object Routes {
     const val CONFLICTS  = "conflicts/{repoId}"
     const val BLAME      = "blame/{repoId}/{encodedPath}"
     const val PROBLEMS   = "problems/{repoId}"
+    const val REPO_SEARCH = "repo_search/{repoId}"
 
     fun changes(id: Long)  = "changes/$id"
     fun log(id: Long)      = "log/$id"
@@ -66,6 +68,7 @@ object Routes {
     fun conflicts(id: Long) = "conflicts/$id"
     fun blame(id: Long, path: String) = "blame/$id/${java.net.URLEncoder.encode(path, "UTF-8")}"
     fun problems(id: Long) = "problems/$id"
+    fun repoSearch(id: Long) = "repo_search/$id"
 }
 
 private const val T = 240
@@ -102,6 +105,7 @@ fun GitFlowMobileNavHost(nav: NavHostController) {
                 onOpenGitignore= { nav.navigate(Routes.gitignore(id)) },
                 onOpenFiles    = { nav.navigate(Routes.explorer(id)) },
                 onOpenProblems = { nav.navigate(Routes.problems(id)) },
+                onOpenSearch   = { nav.navigate(Routes.repoSearch(id)) },
                 onOpenConflicts= { nav.navigate(Routes.conflicts(id)) },
                 onOpenDiff     = { path, staged -> nav.navigate(Routes.diff(id, path, staged)) },
             )
@@ -190,6 +194,14 @@ fun GitFlowMobileNavHost(nav: NavHostController) {
         composable(Routes.PROBLEMS, arguments = listOf(navArgument("repoId") { type = NavType.LongType })) { bs ->
             val id = bs.arguments!!.getLong("repoId")
             ProblemsScreen(
+                repoId = id,
+                onBack = { nav.popBackStack() },
+                onOpenFile = { path, line -> nav.navigate(Routes.editor(id, path, line)) },
+            )
+        }
+        composable(Routes.REPO_SEARCH, arguments = listOf(navArgument("repoId") { type = NavType.LongType })) { bs ->
+            val id = bs.arguments!!.getLong("repoId")
+            RepoSearchScreen(
                 repoId = id,
                 onBack = { nav.popBackStack() },
                 onOpenFile = { path, line -> nav.navigate(Routes.editor(id, path, line)) },

@@ -30,6 +30,7 @@ import willykez.gitflowmobile.App
 import willykez.gitflowmobile.git.CommitInfo
 import willykez.gitflowmobile.git.GitEngine
 import willykez.gitflowmobile.git.GitResult
+import willykez.gitflowmobile.ui.components.GlassCard
 import willykez.gitflowmobile.ui.theme.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -177,10 +178,7 @@ fun LogScreen(repoId: Long, onBack: () -> Unit, onOpenDiff: (Long, String) -> Un
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CommitRow(c: CommitInfo, graphRow: GraphRowLayout?, onClick: () -> Unit, onCopySha: () -> Unit) {
-    Card(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onCopySha),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(0.dp)) {
+    GlassCard(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onCopySha)) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
             CommitGraphLane(graphRow, modifier = Modifier.height(56.dp))
             Spacer(Modifier.width(10.dp))

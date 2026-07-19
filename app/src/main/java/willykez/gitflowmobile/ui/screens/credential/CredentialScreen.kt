@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import willykez.gitflowmobile.data.repository.DecryptedCredential
+import willykez.gitflowmobile.ui.components.GlassCard
 import willykez.gitflowmobile.ui.theme.StatusClean
 import willykez.gitflowmobile.ui.theme.StatusDeleted
 
@@ -140,10 +141,7 @@ private fun CredentialCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(0.dp),
+    GlassCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(

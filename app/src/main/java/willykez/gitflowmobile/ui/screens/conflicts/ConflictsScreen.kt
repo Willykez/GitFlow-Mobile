@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import willykez.gitflowmobile.ui.components.GlassCard
 import willykez.gitflowmobile.ui.theme.Amber
 import willykez.gitflowmobile.ui.theme.StatusAdded
 import willykez.gitflowmobile.ui.theme.StatusClean
@@ -134,11 +135,7 @@ private fun ConflictRow(
     onUseOurs: () -> Unit, onUseTheirs: () -> Unit,
     onEditManually: () -> Unit, onMarkResolved: () -> Unit,
 ) {
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(0.dp),
-    ) {
+    GlassCard(accent = StatusDeleted) {
         Column(Modifier.padding(12.dp)) {
             Text(path, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, maxLines = 2)
             Spacer(Modifier.height(8.dp))

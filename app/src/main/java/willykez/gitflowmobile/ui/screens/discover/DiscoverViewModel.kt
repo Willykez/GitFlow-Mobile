@@ -28,6 +28,10 @@ data class DiscoverUiState(
     val selectedCredentialId: Long? = null,
     val cloningFullName: String? = null,
     val message: String? = null,
+    val showCreateSheet: Boolean = false,
+    val isCreating: Boolean = false,
+    val deletingFullName: String? = null,
+    val confirmDeleteRepo: GitHubRepoSummary? = null,
 )
 
 /**
@@ -140,4 +144,71 @@ class DiscoverViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissMessage() { _state.value = _state.value.copy(message = null) }
+
+    fun openCreateSheet() { _state.value = _state.value.copy(showCreateSheet = true) }
+    fun dismissCreateSheet() { _state.value = _state.value.copy(showCreateSheet = false) }
+
+    /** Creates a new repo on GitHub and, if [cloneAfter], clones it straight
+     *  onto the device — the common case for a git client is "make a repo
+     *  because I want to start working in it right now," not just create it
+     *  and leave it on the website. */
+    fun createRepo(name: String, description: String, private: Boolean, cloneAfter: Boolean) {
+        val token = selectedToken()
+        if (token.isNullOrBlank()) {
+            _state.value = _state.value.copy(message = "Pick a saved credential with a GitHub token first")
+            return
+        }
+        if (name.isBlank()) {
+            _state.value = _state.value.copy(message = "Repo name can't be empty")
+            return
+        }
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isCreating = true)
+            when (val r = GitHubApi.createRepo(token, name, description.ifBlank { null }, private)) {
+                is GitHubResult.Success -> {
+                    _state.value = _state.value.copy(
+                        isCreating = false, showCreateSheet = false,
+                        results = listOf(r.data) + _state.value.results, hasSearched = true, showingMine = true,
+                        message = "Created ${r.data.fullName}",
+                    )
+                    if (cloneAfter) cloneRepo(r.data)
+                }
+                is GitHubResult.Error -> _state.value = _state.value.copy(isCreating = false, message = r.message)
+            }
+        }
+    }
+
+    fun requestDelete(repo: GitHubRepoSummary) { _state.value = _state.value.copy(confirmDeleteRepo = repo) }
+    fun cancelDelete() { _state.value = _state.value.copy(confirmDeleteRepo = null) }
+
+    /** Deletes a repo on GitHub itself — not the local clone, if one exists
+     *  (that's a separate, deliberately-untouched thing; removing it from
+     *  this app is still "remove repo" from the repo list, same as any
+     *  other repo). Requires a token with the `delete_repo` scope, which
+     *  most PATs don't have by default — GitHub's own 403 message for that
+     *  case is passed straight through so it's clear what's actually wrong. */
+    fun confirmDeleteRepo() {
+        val repo = _state.value.confirmDeleteRepo ?: return
+        val token = selectedToken()
+        if (token.isNullOrBlank()) {
+            _state.value = _state.value.copy(confirmDeleteRepo = null, message = "Pick a saved credential with a GitHub token first")
+            return
+        }
+        val parts = repo.fullName.split("/")
+        if (parts.size != 2) {
+            _state.value = _state.value.copy(confirmDeleteRepo = null, message = "Unexpected repo name format")
+            return
+        }
+        viewModelScope.launch {
+            _state.value = _state.value.copy(deletingFullName = repo.fullName, confirmDeleteRepo = null)
+            when (val r = GitHubApi.deleteRepo(token, parts[0], parts[1])) {
+                is GitHubResult.Success -> _state.value = _state.value.copy(
+                    deletingFullName = null,
+                    results = _state.value.results.filterNot { it.fullName == repo.fullName },
+                    message = "Deleted ${repo.fullName} on GitHub",
+                )
+                is GitHubResult.Error -> _state.value = _state.value.copy(deletingFullName = null, message = r.message)
+            }
+        }
+    }
 }

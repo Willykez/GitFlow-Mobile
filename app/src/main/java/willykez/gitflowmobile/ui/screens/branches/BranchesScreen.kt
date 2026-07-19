@@ -20,6 +20,7 @@ import willykez.gitflowmobile.App
 import willykez.gitflowmobile.git.BranchInfo
 import willykez.gitflowmobile.git.GitEngine
 import willykez.gitflowmobile.git.GitResult
+import willykez.gitflowmobile.ui.components.GlassCard
 import willykez.gitflowmobile.ui.screens.changes.ConfirmDialog
 import willykez.gitflowmobile.ui.screens.changes.SingleInputDialog
 import willykez.gitflowmobile.ui.theme.*
@@ -193,9 +194,7 @@ fun BranchesScreen(repoId: Long, onBack: () -> Unit, vm: BranchesViewModel = vie
 @Composable
 private fun BranchRow(b: BranchInfo, onCheckout: () -> Unit, onDelete: () -> Unit, onRename: (() -> Unit)?, onMerge: (() -> Unit)?) {
     var expanded by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = if (b.isCurrent) PlumSoft else MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(0.dp)) {
+    GlassCard(Modifier.fillMaxWidth(), accent = if (b.isCurrent) CommandBlue else null) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(if (b.isCurrent) Icons.Filled.RadioButtonChecked else Icons.Filled.RadioButtonUnchecked,
                 null, Modifier.size(16.dp), tint = if (b.isCurrent) Amber else StatusClean)

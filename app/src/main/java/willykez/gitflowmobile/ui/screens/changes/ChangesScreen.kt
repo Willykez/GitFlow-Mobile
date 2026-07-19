@@ -47,6 +47,7 @@ fun ChangesScreen(
     onOpenGitignore: () -> Unit,
     onOpenFiles: () -> Unit,
     onOpenProblems: () -> Unit,
+    onOpenSearch: () -> Unit,
     onOpenConflicts: () -> Unit,
     onOpenDiff: (path: String, staged: Boolean) -> Unit,
     vm: ChangesViewModel = viewModel(),
@@ -332,6 +333,7 @@ fun ChangesScreen(
             onOpenGitignore = onOpenGitignore,
             onOpenFiles = onOpenFiles,
             onOpenProblems = onOpenProblems,
+            onOpenSearch = onOpenSearch,
         )
     }
 }
@@ -372,6 +374,7 @@ private fun RepoToolsSheet(
     onOpenGitignore: () -> Unit,
     onOpenFiles: () -> Unit,
     onOpenProblems: () -> Unit,
+    onOpenSearch: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var openGroup by remember { mutableStateOf<String?>(null) }
@@ -449,6 +452,7 @@ private fun RepoToolsSheet(
                 ToolRow("Edit .gitignore", Icons.Filled.VisibilityOff) { close(onOpenGitignore) }
                 ToolRow("Files", Icons.Filled.Folder) { close(onOpenFiles) }
                 ToolRow("Problems (TODO/FIXME)", Icons.Filled.Checklist) { close(onOpenProblems) }
+                ToolRow("Search repo", Icons.Filled.Search) { close(onOpenSearch) }
             }
         }
     }

@@ -20,6 +20,7 @@ import willykez.gitflowmobile.App
 import willykez.gitflowmobile.git.GitEngine
 import willykez.gitflowmobile.git.GitResult
 import willykez.gitflowmobile.git.StashInfo
+import willykez.gitflowmobile.ui.components.GlassCard
 import willykez.gitflowmobile.ui.screens.changes.ConfirmDialog
 import willykez.gitflowmobile.ui.screens.changes.SingleInputDialog
 import willykez.gitflowmobile.ui.theme.*
@@ -158,8 +159,7 @@ fun StashScreen(repoId: Long, onBack: () -> Unit, vm: StashViewModel = viewModel
 @Composable
 private fun StashRow(s: StashInfo, onApply: () -> Unit, onDrop: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    GlassCard(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Inventory, null, Modifier.size(20.dp), tint = Amber)
             Spacer(Modifier.width(10.dp))

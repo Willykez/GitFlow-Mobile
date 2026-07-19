@@ -23,6 +23,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val repos = app.repoRepository.allRepos.first() // one-shot read; this worker is headless
 
         var anyFailure = false
+        val reposWithNewCommits = mutableListOf<String>()
 
         for (repo in repos) {
             val credential = if (repo.credentialId != 0L) app.credentialRepository.getById(repo.credentialId) else null
@@ -35,7 +36,13 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 is GitResult.Success -> {
                     val git = opened.data
                     when (val result = GitEngine.fetch(git, credential = credential)) {
-                        is GitResult.Success -> app.repoRepository.markSyncSuccess(repo.id)
+                        is GitResult.Success -> {
+                            app.repoRepository.markSyncSuccess(repo.id)
+                            val aheadBehind = GitEngine.getAheadBehind(git)
+                            if (aheadBehind is GitResult.Success && aheadBehind.data.second > 0) {
+                                reposWithNewCommits.add(repo.name)
+                            }
+                        }
                         is GitResult.Error -> {
                             anyFailure = true
                             app.repoRepository.markError(repo.id, result.message)
@@ -44,6 +51,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     git.close()
                 }
             }
+        }
+
+        if (reposWithNewCommits.isNotEmpty()) {
+            SyncNotifications.notifyNewCommits(applicationContext, reposWithNewCommits)
         }
 
         // Retry later on failure (e.g. a transient network issue) rather than giving up for

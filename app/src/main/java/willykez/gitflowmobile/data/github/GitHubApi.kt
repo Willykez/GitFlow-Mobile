@@ -64,34 +64,106 @@ object GitHubApi {
         }
     }
 
-    private fun parseRepoArray(arr: JSONArray): List<GitHubRepoSummary> {
-        return (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            GitHubRepoSummary(
-                fullName = o.getString("full_name"),
-                description = if (o.isNull("description")) null else o.optString("description").ifBlank { null },
-                cloneUrl = o.getString("clone_url"),
-                stars = o.optInt("stargazers_count", 0),
-                defaultBranch = o.optString("default_branch", "main"),
-                private = o.optBoolean("private", false),
-            )
+    /** Creates a new repo under the signed-in account. [name] is required by
+     *  GitHub; everything else is optional. Returns the created repo's info
+     *  (including its real clone URL) on success. */
+    suspend fun createRepo(
+        token: String, name: String, description: String? = null,
+        private: Boolean = false, autoInit: Boolean = true,
+    ): GitHubResult<GitHubRepoSummary> {
+        val body = JSONObject().apply {
+            put("name", name)
+            if (!description.isNullOrBlank()) put("description", description)
+            put("private", private)
+            put("auto_init", autoInit) // without this, a brand-new repo has no default branch to clone
+        }
+        return when (val r = httpRequest("$BASE/user/repos", "POST", token, body.toString())) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> try {
+                GitHubResult.Success(parseRepoObject(JSONObject(r.data)))
+            } catch (e: Exception) {
+                GitHubResult.Error("Couldn't read GitHub's response: ${e.message}")
+            }
         }
     }
 
+    /** Renames/redescribes/re-visibilities a repo. Pass only the fields that
+     *  should change — GitHub's PATCH endpoint leaves anything omitted as-is. */
+    suspend fun updateRepo(
+        token: String, owner: String, repo: String,
+        newName: String? = null, description: String? = null, private: Boolean? = null,
+    ): GitHubResult<GitHubRepoSummary> {
+        val body = JSONObject().apply {
+            if (!newName.isNullOrBlank()) put("name", newName)
+            if (description != null) put("description", description)
+            if (private != null) put("private", private)
+        }
+        return when (val r = httpRequest("$BASE/repos/$owner/$repo", "PATCH", token, body.toString())) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> try {
+                GitHubResult.Success(parseRepoObject(JSONObject(r.data)))
+            } catch (e: Exception) {
+                GitHubResult.Error("Couldn't read GitHub's response: ${e.message}")
+            }
+        }
+    }
+
+    /** Permanently deletes a repo on GitHub. Requires a token with the
+     *  `delete_repo` scope specifically — most personal access tokens don't
+     *  have it by default even if they can push/pull fine, since GitHub
+     *  treats deletion as a separate, deliberately-opt-in permission. A
+     *  token missing that scope gets a 403 here, surfaced as-is so the
+     *  error message points at the real cause rather than looking like a
+     *  generic failure. */
+    suspend fun deleteRepo(token: String, owner: String, repo: String): GitHubResult<Unit> {
+        return when (val r = httpRequest("$BASE/repos/$owner/$repo", "DELETE", token, null)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> GitHubResult.Success(Unit)
+        }
+    }
+
+    private fun parseRepoObject(o: JSONObject): GitHubRepoSummary = GitHubRepoSummary(
+        fullName = o.getString("full_name"),
+        description = if (o.isNull("description")) null else o.optString("description").ifBlank { null },
+        cloneUrl = o.getString("clone_url"),
+        stars = o.optInt("stargazers_count", 0),
+        defaultBranch = o.optString("default_branch", "main"),
+        private = o.optBoolean("private", false),
+    )
+
+    private fun parseRepoArray(arr: JSONArray): List<GitHubRepoSummary> {
+        return (0 until arr.length()).map { i -> parseRepoObject(arr.getJSONObject(i)) }
+    }
+
     private suspend fun httpGet(urlStr: String, token: String?): GitHubResult<String> =
+        httpRequest(urlStr, "GET", token, null)
+
+    /** Shared HTTP plumbing for every verb this client needs. [jsonBody], when
+     *  present, is sent as an `application/json` request body (POST/PATCH);
+     *  GET/DELETE pass null. A 204 No Content (what DELETE returns on
+     *  success) is treated as success with an empty body rather than a
+     *  parse failure. */
+    private suspend fun httpRequest(urlStr: String, method: String, token: String?, jsonBody: String?): GitHubResult<String> =
         withContext(Dispatchers.IO) {
             var conn: HttpURLConnection? = null
             try {
                 conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
+                    requestMethod = method
                     connectTimeout = 10_000
                     readTimeout = 10_000
                     setRequestProperty("Accept", "application/vnd.github+json")
                     setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
                     if (!token.isNullOrBlank()) setRequestProperty("Authorization", "Bearer $token")
+                    if (jsonBody != null) {
+                        doOutput = true
+                        setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                        outputStream.use { it.write(jsonBody.toByteArray(Charsets.UTF_8)) }
+                    }
                 }
 
                 val code = conn.responseCode
+                if (code == 204) return@withContext GitHubResult.Success("")
+
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                 val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
 

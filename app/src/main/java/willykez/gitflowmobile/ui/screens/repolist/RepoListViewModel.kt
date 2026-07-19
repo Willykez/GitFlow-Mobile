@@ -4,11 +4,15 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import willykez.gitflowmobile.App
+import willykez.gitflowmobile.data.LocalRepoScanner
+import willykez.gitflowmobile.data.PublicStorage
 import willykez.gitflowmobile.data.db.entity.RepoEntity
 import willykez.gitflowmobile.git.GitEngine
 import willykez.gitflowmobile.git.GitResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 enum class RepoSortMode { RECENT, NAME, HAS_CHANGES }
@@ -71,6 +75,34 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
                 repos.forEach { repo ->
                     if (!changeCounts.value.containsKey(repo.id)) loadChangeCount(repo)
                 }
+            }
+        }
+        scanForLocalRepos()
+    }
+
+    /** Looks for repos that exist on disk but aren't tracked yet (dropped in via a
+     *  file manager, USB, Termux, etc.) and registers them automatically. Runs once
+     *  on app open and can be re-triggered manually (e.g. after copying a repo in
+     *  while the app was already running). */
+    fun scanForLocalRepos() {
+        viewModelScope.launch {
+            val known = repoRepository.allRepos.first().map { it.fullSavePath }.toSet()
+            val root = PublicStorage.reposRootDir()
+            val found = withContext(Dispatchers.IO) {
+                LocalRepoScanner.scan(root, known)
+            }
+            found.forEach { candidate ->
+                repoRepository.addRepo(
+                    RepoEntity(
+                        name = candidate.name,
+                        fullSavePath = candidate.path,
+                        cloneUrl = candidate.originUrl,
+                    )
+                )
+            }
+            if (found.isNotEmpty()) {
+                val label = if (found.size == 1) "1 local repo" else "${found.size} local repos"
+                snackbarMessage.value = "Found and added $label"
             }
         }
     }

@@ -1,5 +1,9 @@
 package willykez.gitflowmobile.ui.screens.settings
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -18,6 +22,17 @@ private val INTERVAL_OPTIONS = listOf(1L, 3L, 6L, 12L, 24L)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
     val state by vm.uiState.collectAsState()
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* granted or not, proceed either way — sync itself doesn't depend on it, only the "new commits" notification does */ vm.setBackgroundSyncEnabled(true) }
+
+    fun onToggleSync(enabled: Boolean) {
+        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            vm.setBackgroundSyncEnabled(enabled)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -31,7 +46,8 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
             Text("Background sync", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Periodically checks every repo for new commits on the remote (fetch only — " +
-                    "it never merges or changes your working tree on its own). Needs network access.",
+                    "it never merges or changes your working tree on its own). Needs network access. " +
+                    "You'll get a notification if it finds new commits to pull.",
                 style = MaterialTheme.typography.bodySmall,
                 color = StatusClean,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
@@ -45,7 +61,7 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
                 Text("Enable background sync")
                 Switch(
                     checked = state.backgroundSyncEnabled,
-                    onCheckedChange = vm::setBackgroundSyncEnabled,
+                    onCheckedChange = { onToggleSync(it) },
                 )
             }
 

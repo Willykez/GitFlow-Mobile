@@ -245,3 +245,93 @@ plus a reorderable commit-list UI is a meaningfully larger, higher-stakes
 piece (it rewrites history, not just working-tree/index state), and it
 benefits from its own focused pass rather than being tacked onto an
 already-large set of changes. Next up.
+
+## This session: local repos, GitHub repo management, search, notifications, visual pass, bulk actions
+
+### Local repo detection (new capability — not from cloning)
+- `data/LocalRepoScanner.kt` — walks the app's repos folder (2 levels deep,
+  tolerating some manual subfolder organizing) for directories containing
+  `.git` that aren't yet tracked in the database, and reads each one's
+  `origin` URL straight out of `.git/config` (best-effort — empty string if
+  there isn't one, which is fine, it can be added later via the Remote
+  screen).
+- Wired into `RepoListViewModel.init {}` — runs automatically whenever the
+  repo list loads (i.e. on app open), auto-registers what it finds, and
+  shows a snackbar ("Found and added N local repos") rather than staying
+  silent. No manual "scan" button was added — the top bar already had 5
+  icons (Sort, Discover, Credentials, Settings, Clone) and auto-scan-on-load
+  covers the described use case (drop a repo in, reopen the app) without
+  adding a 6th.
+
+### GitHub repo create/delete (extends the existing Discover→GitHub integration)
+- `GitHubApi.kt`: generalized the GET-only HTTP layer into a shared
+  `httpRequest(url, method, token, jsonBody)` used by the existing search/
+  list-mine calls too. Added `createRepo` (POST), `updateRepo` (PATCH,
+  rename/description/visibility), `deleteRepo` (DELETE, handles GitHub's
+  204 No Content response).
+- Discover screen: "New repo" button next to "My Repos" opens a sheet
+  (name, description, private toggle, "clone to this device" toggle —
+  on by default, since the point of a git *client* creating a repo is
+  usually to start working in it locally right away). Each row in "My
+  Repos" now also gets a delete button, gated behind a confirmation
+  dialog that's explicit about scope: deleting on GitHub is separate
+  from any local clone you have.
+- **Known caveat, not a bug**: `deleteRepo` requires a token with the
+  `delete_repo` scope specifically, which most personal access tokens
+  don't have by default even if push/pull work fine — GitHub treats
+  deletion as a separately opt-in permission. A token missing it gets a
+  403 from GitHub, and that message is passed straight through rather
+  than papered over, so it's clear what's actually wrong rather than
+  looking like a generic failure.
+
+### Full-text search across a repo (new — distinct from find-in-file, which only searches the currently open file)
+- New `ui/screens/search/RepoSearchScreen.kt`, reachable from Changes → ⋮
+  → Manage → "Search repo". Walks the repo (same skip-.git/skip-binary-
+  extensions/cap-file-count approach as the Problems scan — kept as its
+  own copy for now rather than sharing a walker utility, to avoid touching
+  the already-working Problems scan mid-session; a reasonable follow-up
+  cleanup, not a functional gap). Triggered explicitly (search button/IME
+  action), not per-keystroke — walking every file in a repo is too heavy
+  to re-run on every character the way single-file find can. Tapping a
+  result opens the editor at that exact line (reuses the `?line=` param
+  added for the Problems list).
+
+### Background sync notifications
+- `sync/SyncNotifications.kt` — one summary notification per sync run
+  (not one per repo) when a fetch finds new commits available to pull.
+  Deliberately doesn't claim to notify on "conflicts hit," since this
+  worker only ever fetches, never merges — there's nothing to conflict
+  with. `POST_NOTIFICATIONS` (API 33+ runtime permission) is requested
+  from Settings when background sync is switched on, not at app launch;
+  declining it doesn't block sync itself, only the notification.
+
+### GlassCard visual pass — Log, Branches, Stash, Tags, Remote, Credential, Conflicts, Discover
+All eight screens `MERGE_NOTES.md` had flagged as still using the old flat
+`Card`/`surfaceVariant` styling now use the shared `GlassCard`. Two got a
+semantic accent color while I was in there: the current branch in
+Branches (blue), and unresolved files in Conflicts (red). Blame and
+Settings were deliberately left alone — Blame renders as continuous
+attributed code lines, not a list of items, and Settings is a plain form;
+neither would actually look better as a stack of cards.
+
+**Bonus bug fix**: Branches' current-branch highlight was using `PlumSoft`
+— a hardcoded dark-only color alias — unconditionally, the same class of
+light/dark bug fixed earlier in TopAppBars and GlassCard itself. It's an
+adaptive `CommandBlue` accent now.
+
+### Multi-select bulk actions in File Explorer
+Long-press any file/folder to enter selection mode; tap toggles further
+selections. Top bar swaps to a selection-mode bar (count, Stage, Delete,
+Cancel) while active. Both bulk actions open the repo once and loop
+per-path rather than once per file — meaningfully faster for a large
+selection, and each reports a proper "N succeeded, M failed" outcome
+rather than failing silently partway through.
+
+## Still ahead
+**PR creation/viewing** — natural next extension of the `GitHubApi` work
+above (list/view/create PRs, using the same auth/token plumbing).
+**Interactive rebase** and **submodule support** remain the two biggest,
+highest-stakes items — both touch commit history / repo structure more
+deeply than anything shipped today, and both deliberately still deserve
+their own focused pass rather than being appended to an already-large
+batch.
