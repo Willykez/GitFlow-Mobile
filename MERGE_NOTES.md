@@ -462,3 +462,16 @@ on GitHub's infrastructure — replacing GitHub Actions with an on-device
 build would be a different, unverified build environment from what CI
 actually produces, and Android doesn't give a real JDK+Gradle toolchain
 for compiling arbitrary projects on-device anyway.
+
+## Compile fix: WorkflowRunsViewModel
+
+`private val repoRepo = (app as App).repoRepository` followed by
+`private val credRepo = app.credentialRepository` on the next line —
+the inline cast on the first line only applies to that one expression;
+it doesn't carry over to `app`'s type on the next property initializer,
+so the second line was referencing `app: Application`, which has no
+`credentialRepository`. Fixed by casting once into `appRef` and using
+that for both properties (the pattern every other ViewModel in this
+codebase already uses — audited all of them, this was the only one with
+this bug, since it's the only ViewModel that needed two different
+properties off `app` rather than one).

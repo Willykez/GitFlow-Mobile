@@ -36,8 +36,9 @@ data class WorkflowRunsUiState(
 )
 
 class WorkflowRunsViewModel(app: Application) : AndroidViewModel(app) {
-    private val repoRepo = (app as App).repoRepository
-    private val credRepo = app.credentialRepository
+    private val appRef = app as App
+    private val repoRepo = appRef.repoRepository
+    private val credRepo = appRef.credentialRepository
 
     private val _state = MutableStateFlow(WorkflowRunsUiState())
     val state: StateFlow<WorkflowRunsUiState> = _state.asStateFlow()
