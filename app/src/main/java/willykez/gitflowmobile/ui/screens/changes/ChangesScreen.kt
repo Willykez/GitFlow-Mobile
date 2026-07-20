@@ -48,6 +48,7 @@ fun ChangesScreen(
     onOpenFiles: () -> Unit,
     onOpenProblems: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenActions: () -> Unit,
     onOpenConflicts: () -> Unit,
     onOpenDiff: (path: String, staged: Boolean) -> Unit,
     vm: ChangesViewModel = viewModel(),
@@ -68,6 +69,14 @@ fun ChangesScreen(
     LaunchedEffect(repoId) { vm.load(repoId) }
     LaunchedEffect(state.message) {
         state.message?.let { snack.showSnackbar(it); vm.dismissMessage() }
+    }
+    // Surfaces right after a successful push — this is the "don't make me tab over to
+    // GitHub to see if CI passed" moment. Skips the initial composition (tick starts at 0).
+    LaunchedEffect(state.pushSuccessTick) {
+        if (state.pushSuccessTick > 0) {
+            val result = snack.showSnackbar("Pushed — checking CI…", actionLabel = "View", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) onOpenActions()
+        }
     }
 
     // Pull-to-refresh via the Material2 "pullrefresh" primitives (androidx.compose.material,
@@ -334,6 +343,7 @@ fun ChangesScreen(
             onOpenFiles = onOpenFiles,
             onOpenProblems = onOpenProblems,
             onOpenSearch = onOpenSearch,
+            onOpenActions = onOpenActions,
         )
     }
 }
@@ -375,6 +385,7 @@ private fun RepoToolsSheet(
     onOpenFiles: () -> Unit,
     onOpenProblems: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenActions: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var openGroup by remember { mutableStateOf<String?>(null) }
@@ -453,6 +464,7 @@ private fun RepoToolsSheet(
                 ToolRow("Files", Icons.Filled.Folder) { close(onOpenFiles) }
                 ToolRow("Problems (TODO/FIXME)", Icons.Filled.Checklist) { close(onOpenProblems) }
                 ToolRow("Search repo", Icons.Filled.Search) { close(onOpenSearch) }
+                ToolRow("Actions (CI runs)", Icons.Filled.PlayCircle) { close(onOpenActions) }
             }
         }
     }

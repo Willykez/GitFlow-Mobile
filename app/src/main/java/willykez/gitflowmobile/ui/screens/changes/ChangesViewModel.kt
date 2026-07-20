@@ -27,6 +27,9 @@ data class ChangesUiState(
     val isWorking: Boolean = false,
     val message: String? = null,
     val hasConflicts: Boolean = false,
+    /** Bumped on every successful `push()` (not other remote ops) — the UI watches this
+     *  to know when to kick off a CI-status check, without needing to parse [message]. */
+    val pushSuccessTick: Int = 0,
 )
 
 class ChangesViewModel(app: Application) : AndroidViewModel(app) {
@@ -132,8 +135,12 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
     fun pullMerge() = remoteOp { g, cred -> GitEngine.pullMerge(g, cred) }
     fun pullRebase() = remoteOp { g, cred -> GitEngine.pullRebase(g, cred) }
     fun pullForce() = remoteOp { g, cred -> GitEngine.pullForce(g, cred) }
-    fun push() = remoteOp { g, cred -> GitEngine.push(g, credential = cred) }
-    fun pushForce() = remoteOp { g, cred -> GitEngine.push(g, force = true, credential = cred) }
+    fun push() = remoteOp(
+        onSuccessExtra = { _state.value = _state.value.copy(pushSuccessTick = _state.value.pushSuccessTick + 1) },
+    ) { g, cred -> GitEngine.push(g, credential = cred) }
+    fun pushForce() = remoteOp(
+        onSuccessExtra = { _state.value = _state.value.copy(pushSuccessTick = _state.value.pushSuccessTick + 1) },
+    ) { g, cred -> GitEngine.push(g, force = true, credential = cred) }
     fun syncMerge() = remoteOp { g, cred -> GitEngine.syncMerge(g, cred) }
     fun syncRebase() = remoteOp { g, cred -> GitEngine.syncRebase(g, cred) }
 
@@ -173,7 +180,7 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun remoteOp(block: suspend (Git, willykez.gitflowmobile.data.repository.DecryptedCredential?) -> GitResult<*>) {
+    private fun remoteOp(onSuccessExtra: () -> Unit = {}, block: suspend (Git, willykez.gitflowmobile.data.repository.DecryptedCredential?) -> GitResult<*>) {
         val repo = _state.value.repo ?: run { err("Repo not loaded"); return }
         val g = git ?: run { err("Repo not open"); return }
         viewModelScope.launch {
@@ -188,6 +195,7 @@ class ChangesViewModel(app: Application) : AndroidViewModel(app) {
                     repoRepo.markSyncSuccess(repo.id)
                     val msg = when (val d = r.data) { is String -> d; else -> "Done" }
                     ok(msg)
+                    onSuccessExtra()
                     openAndRefresh(repo)
                 }
             }

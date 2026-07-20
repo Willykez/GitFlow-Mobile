@@ -422,3 +422,43 @@ original design's intent.
   local repos (same as the automatic scan on app open) and recomputes
   every repo's change-count badge, so pulling down actually does
   something beyond what already happens automatically on load.
+
+## In-app CI status: view GitHub Actions runs without leaving the app
+
+New `GitHubActionsApi.kt` (parallel to the existing `GitHubApi.kt`, same
+lightweight HttpURLConnection approach, no new dependency) covers:
+listing recent workflow runs, listing a run's jobs + steps, fetching the
+tail of a job's log (follows GitHub's redirect to the plain-text log file,
+keeps only the last ~120 lines — a full CI log can be thousands of lines,
+and what you want after a failure is almost always near the end), and
+rerun-failed / rerun-all / cancel actions. Same PAT already used for git
+push/pull works here — GitHub Actions read/write is covered by the
+standard `repo` scope people already grant.
+
+**New screen**: `WorkflowRunsScreen`, reachable from Changes → ⋮ → Manage
+→ "Actions (CI runs)" — a list of recent runs, each expandable in place to
+show its jobs, each job's steps with live status icons, and — on a failed
+job — a "View log" button showing the log tail inline. Rerun/cancel
+buttons appear based on the run's actual state (Cancel while active,
+Rerun failed/Rerun all once it's done). Polls every 12s while the screen
+is open so status updates without a manual pull.
+
+**Auto-triggered after push**: `ChangesViewModel.push()` (and
+`pushForce()`) now bump a `pushSuccessTick` counter on success, which the
+Composable watches to show a "Pushed — checking CI…" snackbar with a
+"View" action straight into the Actions screen — the exact "don't make me
+tab over to GitHub to see if it passed" moment from the original ask.
+
+**Two states this screen handles explicitly, not just a generic error**:
+- Repo's remote isn't on github.com (GitLab/Gitea/self-hosted) — nothing
+  to show, says so plainly rather than showing a confusing empty list.
+- Repo has no credential attached — points at "Set credential…" on the
+  home screen (the same fix-up path added for the earlier push-auth bug),
+  since the same token is what authorizes these API calls too.
+
+**Deliberately not built**: actually running the build *on-device*. Real
+value here is visibility and control over the CI run that already exists
+on GitHub's infrastructure — replacing GitHub Actions with an on-device
+build would be a different, unverified build environment from what CI
+actually produces, and Android doesn't give a real JDK+Gradle toolchain
+for compiling arbitrary projects on-device anyway.

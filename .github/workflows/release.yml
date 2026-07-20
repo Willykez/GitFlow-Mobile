@@ -1,25 +1,24 @@
 name: Build signed release APK
 
+# Runs when you push a version tag (e.g. "v1.0.0"), or manually from the
+# Actions tab any time ("Run workflow" button) — useful while you're still
+# testing changes and don't want to tag a release yet.
 on:
   push:
     tags:
       - "v*"
-
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write   # needed to attach the APK to a GitHub Release on a tag push
 
 jobs:
   build-release:
-
     runs-on: ubuntu-latest
 
     steps:
-
-      - name: Checkout repository
+      - name: Check out the repo
         uses: actions/checkout@v4
-
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -27,137 +26,117 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-
+      # Installs a real Gradle 8.7 and puts a `gradle` command on PATH.
+      # This project intentionally doesn't rely on `./gradlew` in CI — the
+      # binary gradle-wrapper.jar that ships with a normal Gradle project
+      # isn't checked into this repo (see README), so every step below calls
+      # `gradle` directly instead. Locally in Android Studio this doesn't
+      # matter: Android Studio regenerates the wrapper jar itself on sync.
       - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
 
-
-      # -------------------------------------------------------
-      # Decode release signing keystore
-      # -------------------------------------------------------
-
-      - name: Configure release signing keystore
+      # ----------------------------------------------------------------
+      # Signing keystore.
+      #
+      # If KEYSTORE_B64 is set as a repo secret, this decodes and uses that
+      # real, persistent keystore — every build is signed with the same
+      # key, so updates install in place and (eventually) this could ship
+      # to the Play Store.
+      #
+      # If that secret isn't set yet, this falls back to generating a
+      # throwaway keystore instead: fine for installing on your own
+      # device(s), but a fresh random key every run means you can't update
+      # in place across runs, and it could never go to the Play Store.
+      # See README.md → "Signing" for how to generate and add the real
+      # keystore secrets.
+      # ----------------------------------------------------------------
+      - name: Set up signing keystore
         id: keystore
         env:
-          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
+          HAS_PERSISTENT_KEYSTORE: ${{ secrets.KEYSTORE_B64 != '' }}
         run: |
+          KEYSTORE_PATH="$RUNNER_TEMP/gitflowmobile-release.keystore"
 
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "::error::KEYSTORE_B64 secret is missing."
-            exit 1
+          if [ "$HAS_PERSISTENT_KEYSTORE" = "true" ]; then
+            echo "Using persistent keystore from repo secrets."
+            echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > "$KEYSTORE_PATH"
+            STORE_PASSWORD="${{ secrets.STORE_PASSWORD }}"
+            KEY_PASSWORD="${{ secrets.KEY_PASSWORD }}"
+            # The real keystore's alias is "upload".
+            KEY_ALIAS="upload"
+
+            # A PKCS12 keystore (what modern `keytool` generates by default,
+            # including the README's example command) requires the store
+            # password and key password to be IDENTICAL. Two different
+            # values here isn't a "maybe" — it WILL fail the build below
+            # with a cryptic "Given final block not properly padded" error,
+            # so this catches it early with a clear message instead.
+            if [ "$STORE_PASSWORD" != "$KEY_PASSWORD" ]; then
+              echo "::error::STORE_PASSWORD and KEY_PASSWORD secrets don't match. A PKCS12 keystore needs the same password for both — set them to the same value (the one you passed to keytool's -storepass and -keypass)."
+              exit 1
+            fi
+            KEYSTORE_PASSWORD="$STORE_PASSWORD"
+          else
+            echo "::warning::No KEYSTORE_B64 secret found — signing with a throwaway keystore. This build won't be able to update in place over a previous install signed the same way, and can't go to the Play Store. See README.md → Signing."
+            # NOTE: modern `keytool` defaults to a PKCS12 keystore, and PKCS12
+            # requires the store password and key password to be IDENTICAL —
+            # using two different random passwords here causes a confusing
+            # "Given final block not properly padded" error later, when the
+            # build tries to open the key with a different password than the
+            # store was encrypted with. So: one password, used for both.
+            KEYSTORE_PASSWORD=$(openssl rand -hex 16)
+            KEY_ALIAS="gitflowmobile"
+            keytool -genkeypair \
+              -v \
+              -storetype PKCS12 \
+              -keystore "$KEYSTORE_PATH" \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEYSTORE_PASSWORD" \
+              -dname "CN=GitFlowMobile, OU=GitFlowMobile, O=GitFlowMobile, L=Unknown, S=Unknown, C=TZ"
           fi
 
-
-          if [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
-            echo "::error::STORE_PASSWORD or KEY_PASSWORD secret is missing."
-            exit 1
-          fi
-
-
-          if [ "$STORE_PASSWORD" != "$KEY_PASSWORD" ]; then
-            echo "::error::STORE_PASSWORD and KEY_PASSWORD must be identical for PKCS12 keystores."
-            exit 1
-          fi
-
-
-          KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
-
-
-          echo "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_PATH"
-
-
-          if [ ! -f "$KEYSTORE_PATH" ]; then
-            echo "::error::Failed to create keystore file."
-            exit 1
-          fi
-
-
-          KEY_ALIAS="upload"
-
-
-          echo "::add-mask::$STORE_PASSWORD"
-
-
+          # Mask the password in logs, then hand it to later steps.
+          echo "::add-mask::$KEYSTORE_PASSWORD"
+          echo "keystore_password=$KEYSTORE_PASSWORD" >> "$GITHUB_OUTPUT"
           echo "keystore_path=$KEYSTORE_PATH" >> "$GITHUB_OUTPUT"
-          echo "keystore_password=$STORE_PASSWORD" >> "$GITHUB_OUTPUT"
-          echo "key_password=$KEY_PASSWORD" >> "$GITHUB_OUTPUT"
           echo "key_alias=$KEY_ALIAS" >> "$GITHUB_OUTPUT"
 
-
-
-      # -------------------------------------------------------
-      # Build signed release APK
-      # -------------------------------------------------------
-
-      - name: Build release APK
+      - name: Build release APK (shrunk + signed)
         run: |
-
           gradle assembleRelease \
             -PGITFLOWMOBILE_RELEASE_STORE_FILE="${{ steps.keystore.outputs.keystore_path }}" \
             -PGITFLOWMOBILE_RELEASE_STORE_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
             -PGITFLOWMOBILE_RELEASE_KEY_ALIAS="${{ steps.keystore.outputs.key_alias }}" \
-            -PGITFLOWMOBILE_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.key_password }}" \
+            -PGITFLOWMOBILE_RELEASE_KEY_PASSWORD="${{ steps.keystore.outputs.keystore_password }}" \
             --no-daemon
 
-
-
-      # -------------------------------------------------------
-      # Find APK
-      # -------------------------------------------------------
-
-      - name: Locate APK
+      - name: Locate the built APK
         id: apk
         run: |
-
           APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n1)
-
-
-          if [ -z "$APK_PATH" ]; then
-            echo "::error::Release APK not found."
-            exit 1
-          fi
-
-
-          echo "APK found:"
-          echo "$APK_PATH"
-
-
+          echo "Found: $APK_PATH"
           echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
 
-
-
-      # -------------------------------------------------------
-      # Upload workflow artifact
-      # -------------------------------------------------------
-
-      - name: Upload APK artifact
+      - name: Upload APK as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
-
           name: gitflowmobile-release-apk
-
           path: ${{ steps.apk.outputs.path }}
-
           retention-days: 30
 
-
-
-      # -------------------------------------------------------
-      # Create GitHub Release only from version tags
-      # -------------------------------------------------------
-
-      - name: Create GitHub Release
+      # Only runs when this workflow was triggered by pushing a tag like
+      # "v1.0.0" — attaches the APK directly to a GitHub Release so you (or
+      # anyone) can download it straight from the repo's Releases page,
+      # without digging through workflow run artifacts.
+      - name: Create GitHub Release with APK attached
         if: startsWith(github.ref, 'refs/tags/v')
-
         uses: softprops/action-gh-release@v2
-
         with:
-
           files: ${{ steps.apk.outputs.path }}
-
           generate_release_notes: true

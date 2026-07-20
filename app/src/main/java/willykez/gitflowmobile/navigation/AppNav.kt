@@ -22,6 +22,7 @@ import willykez.gitflowmobile.ui.screens.log.LogScreen
 import willykez.gitflowmobile.ui.screens.problems.ProblemsScreen
 import willykez.gitflowmobile.ui.screens.remote.RemoteScreen
 import willykez.gitflowmobile.ui.screens.search.RepoSearchScreen
+import willykez.gitflowmobile.ui.screens.workflow.WorkflowRunsScreen
 import willykez.gitflowmobile.ui.screens.repolist.RepoListScreen
 import willykez.gitflowmobile.ui.screens.settings.SettingsScreen
 import willykez.gitflowmobile.ui.screens.stash.StashScreen
@@ -46,6 +47,7 @@ object Routes {
     const val BLAME      = "blame/{repoId}/{encodedPath}"
     const val PROBLEMS   = "problems/{repoId}"
     const val REPO_SEARCH = "repo_search/{repoId}"
+    const val WORKFLOW_RUNS = "workflow_runs/{repoId}"
 
     fun changes(id: Long)  = "changes/$id"
     fun log(id: Long)      = "log/$id"
@@ -69,6 +71,7 @@ object Routes {
     fun blame(id: Long, path: String) = "blame/$id/${java.net.URLEncoder.encode(path, "UTF-8")}"
     fun problems(id: Long) = "problems/$id"
     fun repoSearch(id: Long) = "repo_search/$id"
+    fun workflowRuns(id: Long) = "workflow_runs/$id"
 }
 
 private const val T = 240
@@ -106,6 +109,7 @@ fun GitFlowMobileNavHost(nav: NavHostController) {
                 onOpenFiles    = { nav.navigate(Routes.explorer(id)) },
                 onOpenProblems = { nav.navigate(Routes.problems(id)) },
                 onOpenSearch   = { nav.navigate(Routes.repoSearch(id)) },
+                onOpenActions  = { nav.navigate(Routes.workflowRuns(id)) },
                 onOpenConflicts= { nav.navigate(Routes.conflicts(id)) },
                 onOpenDiff     = { path, staged -> nav.navigate(Routes.diff(id, path, staged)) },
             )
@@ -205,6 +209,12 @@ fun GitFlowMobileNavHost(nav: NavHostController) {
                 repoId = id,
                 onBack = { nav.popBackStack() },
                 onOpenFile = { path, line -> nav.navigate(Routes.editor(id, path, line)) },
+            )
+        }
+        composable(Routes.WORKFLOW_RUNS, arguments = listOf(navArgument("repoId") { type = NavType.LongType })) { bs ->
+            WorkflowRunsScreen(
+                repoId = bs.arguments!!.getLong("repoId"),
+                onBack = { nav.popBackStack() },
             )
         }
     }
