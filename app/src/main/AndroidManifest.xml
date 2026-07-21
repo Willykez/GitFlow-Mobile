@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!--
-        Repos now live in a PUBLIC folder (/storage/emulated/0/GitFlowMobile/repos)
+        Repos now live in a PUBLIC folder (/storage/emulated/0/.GitFlow/repos)
         instead of this app's private Android/data folder, so any file
         manager, other app, or PC-over-USB can reach the files. See
         data/PublicStorage.kt for the full reasoning.
@@ -30,6 +30,12 @@
          from SettingsScreen when background sync is turned on, not at launch. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Lets the Actions screen hand a downloaded debug/release APK straight to
+         the system installer, instead of just downloading it and stopping there.
+         Android still shows its own "allow installs from this app" prompt the
+         first time — this permission is what makes that prompt reachable at all. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".App"
         android:allowBackup="false"
@@ -50,6 +56,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Exposes downloaded build artifacts (debug/release APKs from the Actions
+             screen) to the system package installer via a content:// URI — Android
+             8+ blocks handing a bare file:// path to another app (FileUriExposedException),
+             so this is required, not optional, for the "install this APK" flow. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

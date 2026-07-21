@@ -1,5 +1,7 @@
 package willykez.gitflowmobile.ui.screens.workflow
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,11 +18,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import willykez.gitflowmobile.data.github.WorkflowArtifact
 import willykez.gitflowmobile.data.github.WorkflowJob
 import willykez.gitflowmobile.data.github.WorkflowRun
 import willykez.gitflowmobile.data.github.WorkflowStep
@@ -37,8 +41,23 @@ fun WorkflowRunsScreen(
 ) {
     val state by vm.state.collectAsState()
     val snack = remember { SnackbarHostState() }
+    val context = LocalContext.current
     LaunchedEffect(repoId) { vm.load(repoId) }
     LaunchedEffect(state.message) { state.message?.let { snack.showSnackbar(it); vm.dismiss() } }
+    LaunchedEffect(state.installUri) {
+        val uri = state.installUri ?: return@LaunchedEffect
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            snack.showSnackbar("No app on this device can install APKs")
+        }
+        vm.consumeInstallUri()
+    }
 
     Scaffold(
         topBar = {
@@ -93,6 +112,9 @@ fun WorkflowRunsScreen(
                         onRerunFailed = { vm.rerunFailed(run.id) },
                         onRerunAll = { vm.rerunAll(run.id) },
                         onCancel = { vm.cancelRun(run.id) },
+                        artifacts = state.artifactsByRun[run.id],
+                        downloadingArtifactId = state.downloadingArtifactId,
+                        onDownload = { artifact -> vm.downloadAndInstall(artifact) },
                     )
                 }
             }
@@ -146,6 +168,9 @@ private fun RunRow(
     onRerunFailed: () -> Unit,
     onRerunAll: () -> Unit,
     onCancel: () -> Unit,
+    artifacts: List<WorkflowArtifact>?,
+    downloadingArtifactId: Long?,
+    onDownload: (WorkflowArtifact) -> Unit,
 ) {
     val (icon, color) = statusVisual(run.status, run.conclusion)
     val hasFailure = run.conclusion == "failure"
@@ -196,10 +221,56 @@ private fun RunRow(
                             JobBlock(job, logForJobId, logTail, isLoadingLog, onViewLog)
                         }
                     }
+
+                    if (!artifacts.isNullOrEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Build outputs", style = MaterialTheme.typography.labelLarge)
+                        artifacts.forEach { artifact ->
+                            ArtifactRow(artifact, downloadingArtifactId == artifact.id, onDownload)
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ArtifactRow(artifact: WorkflowArtifact, isDownloading: Boolean, onDownload: (WorkflowArtifact) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Android, null, tint = StatusAdded, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(artifact.name, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            Text(formatBytes(artifact.sizeBytes), style = MaterialTheme.typography.labelSmall, color = StatusClean)
+        }
+        if (artifact.expired) {
+            Text("Expired", style = MaterialTheme.typography.labelSmall, color = StatusDeleted)
+        } else {
+            TextButton(onClick = { onDownload(artifact) }, enabled = !isDownloading) {
+                if (isDownloading) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Downloading…")
+                } else {
+                    Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Install")
+                }
+            }
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_000_000 -> "%.1f MB".format(bytes / 1_000_000.0)
+    bytes >= 1_000 -> "%.0f KB".format(bytes / 1_000.0)
+    else -> "$bytes B"
 }
 
 @Composable

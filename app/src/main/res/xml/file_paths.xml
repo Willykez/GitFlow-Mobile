@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tells FileProvider which of this app's private folders it's allowed to hand
+     out content:// URIs for. Only the cache dir is exposed — downloaded APKs
+     land in a "downloaded-apks" subfolder there (see WorkflowRunsViewModel),
+     nothing else in this app's storage is reachable through this provider. -->
+<paths>
+    <cache-path name="downloaded_apks" path="downloaded-apks/" />
+</paths>

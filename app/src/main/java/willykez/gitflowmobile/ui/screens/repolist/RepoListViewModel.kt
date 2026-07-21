@@ -106,11 +106,37 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 )
             }
+            val repaired = repairMissingCloneUrls()
             if (found.isNotEmpty()) {
                 val label = if (found.size == 1) "1 local repo" else "${found.size} local repos"
                 snackbarMessage.value = "Found and added $label"
+            } else if (repaired > 0) {
+                snackbarMessage.value = if (repaired == 1) "Fixed 1 repo's remote URL" else "Fixed $repaired repos' remote URLs"
             }
         }
+    }
+
+    /** Re-checks `.git/config` for any already-tracked repo whose `cloneUrl` came back
+     *  blank the first time it was detected — a repo added before `origin` was ever
+     *  configured, or one where the config read hit a transient failure, would
+     *  otherwise stay stuck showing "Not a GitHub repo" forever, since a normal scan
+     *  only looks for repos it doesn't know about yet and never re-examines ones it
+     *  already tracks. Returns how many were actually fixed. */
+    private suspend fun repairMissingCloneUrls(): Int {
+        val candidates = repoRepository.allRepos.first().filter { it.cloneUrl.isBlank() }
+        if (candidates.isEmpty()) return 0
+        var fixed = 0
+        withContext(Dispatchers.IO) {
+            candidates.forEach { repo ->
+                val gitDir = File(repo.fullSavePath, ".git")
+                val url = LocalRepoScanner.readOriginUrl(gitDir)
+                if (url.isNotBlank()) {
+                    repoRepository.updateRepo(repo.copy(cloneUrl = url))
+                    fixed++
+                }
+            }
+        }
+        return fixed
     }
 
     /** Pull-to-refresh: re-scans for local repos (same as the automatic scan on
@@ -127,13 +153,14 @@ class RepoListViewModel(app: Application) : AndroidViewModel(app) {
                     RepoEntity(name = candidate.name, fullSavePath = candidate.path, cloneUrl = candidate.originUrl)
                 )
             }
+            val repaired = repairMissingCloneUrls()
             val repos = repoRepository.allRepos.first()
             repos.forEach { loadChangeCount(it) }
             isRefreshing.value = false
-            snackbarMessage.value = if (found.isNotEmpty()) {
-                if (found.size == 1) "Found and added 1 local repo" else "Found and added ${found.size} local repos"
-            } else {
-                "Refreshed"
+            snackbarMessage.value = when {
+                found.isNotEmpty() -> if (found.size == 1) "Found and added 1 local repo" else "Found and added ${found.size} local repos"
+                repaired > 0 -> if (repaired == 1) "Fixed 1 repo's remote URL" else "Fixed $repaired repos' remote URLs"
+                else -> "Refreshed"
             }
         }
     }

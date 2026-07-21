@@ -53,8 +53,10 @@ object LocalRepoScanner {
      *  open just to answer one string, and failing to read it (missing
      *  remote, unreadable file) isn't fatal: the repo still gets added,
      *  just with an empty clone URL the person can fill in later via the
-     *  Remote screen. */
-    private fun readOriginUrl(gitDir: File): String {
+     *  Remote screen. Public so a caller can re-check a single already-known
+     *  repo's origin (e.g. to repair one that came back blank the first time)
+     *  without re-running a full directory scan. */
+    fun readOriginUrl(gitDir: File): String {
         return try {
             val configFile = File(gitDir, "config")
             if (!configFile.exists()) return ""

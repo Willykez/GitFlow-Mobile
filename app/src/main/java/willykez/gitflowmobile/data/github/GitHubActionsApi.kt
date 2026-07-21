@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -35,6 +36,15 @@ data class WorkflowJob(
     val status: String,
     val conclusion: String?,
     val steps: List<WorkflowStep>,
+)
+
+/** A build output attached to a run — for this app's own workflows, that's the
+ *  debug/release APK uploaded by `ci.yml`/`release.yml`'s "Upload ... artifact" step. */
+data class WorkflowArtifact(
+    val id: Long,
+    val name: String,
+    val sizeBytes: Long,
+    val expired: Boolean,
 )
 
 /**
@@ -125,6 +135,54 @@ object GitHubActionsApi {
                 GitHubResult.Success(lines.takeLast(tailLines).joinToString("\n"))
             } catch (e: Exception) {
                 GitHubResult.Error(e.message ?: "Network error fetching log")
+            } finally {
+                conn?.disconnect()
+            }
+        }
+
+    suspend fun listArtifacts(token: String, owner: String, repo: String, runId: Long): GitHubResult<List<WorkflowArtifact>> {
+        return when (val r = httpRequest("$BASE/repos/$owner/$repo/actions/runs/$runId/artifacts", "GET", token, null)) {
+            is GitHubResult.Error -> r
+            is GitHubResult.Success -> try {
+                val arr = JSONObject(r.data).getJSONArray("artifacts")
+                GitHubResult.Success((0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    WorkflowArtifact(
+                        id = o.getLong("id"),
+                        name = o.optString("name", "artifact"),
+                        sizeBytes = o.optLong("size_in_bytes", 0L),
+                        expired = o.optBoolean("expired", false),
+                    )
+                })
+            } catch (e: Exception) {
+                GitHubResult.Error("Couldn't read GitHub's response: ${e.message}")
+            }
+        }
+    }
+
+    /** Downloads an artifact's archive to [destZip]. GitHub always wraps artifact
+     *  content in a zip, even for a single file — the caller (see
+     *  `WorkflowRunsViewModel.downloadAndInstall`) extracts the APK out of it. */
+    suspend fun downloadArtifactZip(token: String, owner: String, repo: String, artifactId: Long, destZip: File): GitHubResult<Unit> =
+        withContext(Dispatchers.IO) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL("$BASE/repos/$owner/$repo/actions/artifacts/$artifactId/zip").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10_000
+                    readTimeout = 30_000 // artifacts can be several MB; a short timeout would fail large debug APKs
+                    setRequestProperty("Accept", "application/vnd.github+json")
+                    setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
+                    if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
+                }
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    return@withContext GitHubResult.Error("Couldn't download artifact (HTTP $code) — it may have expired.")
+                }
+                conn.inputStream.use { input -> destZip.outputStream().use { output -> input.copyTo(output) } }
+                GitHubResult.Success(Unit)
+            } catch (e: Exception) {
+                GitHubResult.Error(e.message ?: "Network error downloading artifact")
             } finally {
                 conn?.disconnect()
             }

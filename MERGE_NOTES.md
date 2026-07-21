@@ -486,3 +486,60 @@ now-redundant entry from the Manage group rather than keeping it in both
 places. There's no bottom nav bar in this app (single-activity,
 push-style Navigation Compose) — the top bar is the only "always visible"
 surface, so that's where this landed rather than a separate nav element.
+
+## Fix: local repos stuck showing "Not a GitHub repo" even after resync
+
+Root cause: `scanForLocalRepos()` and pull-to-refresh's `refresh()` only
+ever *add* repos not yet known — they never re-examine a repo already
+tracked. If a repo's `origin` URL read failed the first time it was
+detected (config parse hiccup, or the repo was picked up before `origin`
+was even configured), `cloneUrl` stayed permanently blank — no amount of
+resyncing would fix it, since resync only looks for *new* repos.
+
+Fixed by adding `repairMissingCloneUrls()`, called from both
+`scanForLocalRepos()` and `refresh()`: re-reads `.git/config` for every
+already-tracked repo whose `cloneUrl` is blank, and updates it if an
+origin URL is found now. `LocalRepoScanner.readOriginUrl` made public so
+this repair pass can call it directly on one repo, without re-running a
+full directory scan.
+
+## Storage folder renamed: GitFlowMobile → .GitFlow (hidden)
+
+`PublicStorage.FOLDER_NAME` changed to `.GitFlow` — still genuinely
+public/shared storage (not the app's private sandbox, nothing changed
+about that), just a hidden folder by the usual dot-prefix convention so
+it doesn't clutter the top level of shared storage in a normal file
+manager listing. **Non-breaking for existing repos**: each repo's
+location is stored as an absolute path in the database, not recomputed
+from this constant, so already-cloned repos keep working untouched. What
+changes going forward: new clones land in the hidden folder, and local
+auto-detect only scans inside it — a repo manually dropped into the old
+visible "GitFlowMobile" folder won't be found by auto-detect anymore
+(move it under the new folder, or clone fresh, to have it picked up).
+
+## New: download & install a build's APK from within the app
+
+The Actions screen's "Build outputs" section (visible once a run is
+expanded and it uploaded something) lists every artifact GitHub has for
+that run — for this app's own `ci.yml`/`release.yml`, that's the debug or
+signed release APK — each with an "Install" button.
+
+**How it works**: `GitHubActionsApi.listArtifacts` /
+`downloadArtifactZip` (GitHub always wraps artifact content in a zip,
+even a single file) → `WorkflowRunsViewModel.downloadAndInstall`
+downloads to the app's cache dir, extracts the first `.apk` entry via
+`ZipInputStream` (deletes the zip wrapper immediately after), then hands
+a `content://` URI to the system installer via `Intent.ACTION_VIEW` +
+`FileProvider` — Android 8+ blocks passing another app a raw `file://`
+path (`FileUriExposedException`), so FileProvider is required here, not
+optional.
+
+**New manifest wiring**: `REQUEST_INSTALL_PACKAGES` permission, a
+`FileProvider` declaration scoped to only the cache dir's
+`downloaded-apks/` subfolder (via `res/xml/file_paths.xml`) — nothing
+else in the app's storage is reachable through this provider.
+
+**Handles**: expired artifacts (GitHub artifacts expire after a
+retention period — shown as "Expired" instead of an Install button, no
+failed download attempt), and no-APK-found-in-zip (clear message rather
+than a silent no-op).

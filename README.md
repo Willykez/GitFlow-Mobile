@@ -132,7 +132,9 @@ Once all three secrets are set, `release.yml` picks them up automatically
 
 |---|---|
 | `INTERNET` / `ACCESS_NETWORK_STATE` | Clone, fetch, push, pull over the network |
-| All-files access (Android 11+) / `WRITE_EXTERNAL_STORAGE` (Android 10-) | Repos are stored in a **public** folder (`/storage/emulated/0/GitFlowMobile/repos`) instead of the app's private sandbox, so any file manager, other app, or PC-over-USB can reach your files directly |
+| All-files access (Android 11+) / `WRITE_EXTERNAL_STORAGE` (Android 10-) | Repos are stored in a **public** folder (`/storage/emulated/0/.GitFlow/repos`) instead of the app's private sandbox, so any file manager, other app, or PC-over-USB can reach your files directly |
+| `POST_NOTIFICATIONS` (Android 13+) | Lets background sync notify you when it finds new commits to pull — requested from Settings when you turn background sync on, not at launch |
+| `REQUEST_INSTALL_PACKAGES` | Lets the Actions screen hand a downloaded debug/release APK straight to the system installer, instead of just downloading it and stopping there |
 
 ## Project structure
 

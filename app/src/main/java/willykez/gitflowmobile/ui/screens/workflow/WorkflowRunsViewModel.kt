@@ -1,20 +1,27 @@
 package willykez.gitflowmobile.ui.screens.workflow
 
 import android.app.Application
+import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import willykez.gitflowmobile.App
 import willykez.gitflowmobile.data.github.GitHubActionsApi
 import willykez.gitflowmobile.data.github.GitHubResult
+import willykez.gitflowmobile.data.github.WorkflowArtifact
 import willykez.gitflowmobile.data.github.WorkflowJob
 import willykez.gitflowmobile.data.github.WorkflowRun
 import willykez.gitflowmobile.data.github.parseGitHubOwnerRepo
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.zip.ZipInputStream
 
 data class WorkflowRunsUiState(
     val repoLabel: String = "",
@@ -33,6 +40,13 @@ data class WorkflowRunsUiState(
     /** Set when the repo has no credential attached — same PAT already used for git
      *  push/pull is what's used here too, so without one there's nothing to auth with. */
     val noToken: Boolean = false,
+    val artifactsByRun: Map<Long, List<WorkflowArtifact>> = emptyMap(),
+    val downloadingArtifactId: Long? = null,
+    /** One-shot signal: a content:// URI ready to hand to the system installer.
+     *  The Composable launches the install Intent when this becomes non-null, then
+     *  calls [WorkflowRunsViewModel.consumeInstallUri] so it doesn't re-fire on the
+     *  next recomposition (e.g. after a config change). */
+    val installUri: Uri? = null,
 )
 
 class WorkflowRunsViewModel(app: Application) : AndroidViewModel(app) {
@@ -103,8 +117,70 @@ class WorkflowRunsViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             _state.value = _state.value.copy(expandedRunId = runId, logForJobId = null, logTail = null)
             loadJobs(runId)
+            loadArtifacts(runId)
         }
     }
+
+    private fun loadArtifacts(runId: Long) {
+        viewModelScope.launch {
+            when (val r = GitHubActionsApi.listArtifacts(token, owner, repoSlug, runId)) {
+                is GitHubResult.Success -> _state.value = _state.value.copy(artifactsByRun = _state.value.artifactsByRun + (runId to r.data))
+                is GitHubResult.Error -> { /* not fatal to show the run — jobs/steps still work without artifacts */ }
+            }
+        }
+    }
+
+    /** Downloads [artifact]'s zip, pulls the first `.apk` out of it, and signals the
+     *  Composable (via [WorkflowRunsUiState.installUri]) to hand it to the system
+     *  installer. GitHub always wraps artifact content in a zip even for a single
+     *  file, so "download the artifact" and "extract an APK from it" are always two
+     *  separate steps here, not one. */
+    fun downloadAndInstall(artifact: WorkflowArtifact) {
+        if (artifact.expired) {
+            _state.value = _state.value.copy(message = "This artifact has expired on GitHub's side and can no longer be downloaded.")
+            return
+        }
+        viewModelScope.launch {
+            _state.value = _state.value.copy(downloadingArtifactId = artifact.id)
+            val apkDir = File(getApplication<Application>().cacheDir, "downloaded-apks").apply { mkdirs() }
+            val zipFile = File(apkDir, "artifact-${artifact.id}.zip")
+            val dlResult = GitHubActionsApi.downloadArtifactZip(token, owner, repoSlug, artifact.id, zipFile)
+            if (dlResult is GitHubResult.Error) {
+                _state.value = _state.value.copy(downloadingArtifactId = null, message = dlResult.message)
+                return@launch
+            }
+            val apkFile = withContext(Dispatchers.IO) { extractFirstApk(zipFile, apkDir, artifact.name) }
+            zipFile.delete() // the zip itself was just a wrapper — no reason to keep it around
+            if (apkFile == null) {
+                _state.value = _state.value.copy(downloadingArtifactId = null, message = "No .apk file found inside \"${artifact.name}\" — is this actually a build artifact?")
+                return@launch
+            }
+            val context = getApplication<Application>()
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
+            _state.value = _state.value.copy(downloadingArtifactId = null, installUri = uri)
+        }
+    }
+
+    /** Walks [zipFile]'s entries for the first one ending in `.apk` and copies just
+     *  that entry out to its own file — everything else in the zip (if anything) is
+     *  ignored, since for this app's own workflows the artifact is always exactly
+     *  one APK. Returns null if no `.apk` entry exists. */
+    private fun extractFirstApk(zipFile: File, destDir: File, artifactName: String): File? {
+        ZipInputStream(zipFile.inputStream()).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory && entry.name.endsWith(".apk", ignoreCase = true)) {
+                    val outFile = File(destDir, "$artifactName.apk")
+                    outFile.outputStream().use { out -> zip.copyTo(out) }
+                    return outFile
+                }
+                entry = zip.nextEntry
+            }
+        }
+        return null
+    }
+
+    fun consumeInstallUri() { _state.value = _state.value.copy(installUri = null) }
 
     private fun loadJobs(runId: Long) {
         viewModelScope.launch {

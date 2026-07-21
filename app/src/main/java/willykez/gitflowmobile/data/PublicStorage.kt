@@ -9,15 +9,23 @@ import android.provider.Settings
 import java.io.File
 
 /**
- * Repos now live in a PUBLIC folder — /storage/emulated/0/GitFlowMobile/repos/<name> —
+ * Repos now live in a PUBLIC folder — /storage/emulated/0/.GitFlow/repos/<name> —
  * instead of this app's private Android/data/willykez.gitflowmobile/files folder.
  *
- * Why this matters: Android/data is locked down starting Android 11 — even
- * file manager apps can't easily browse into another app's Android/data
- * folder anymore. A public folder under the root of shared storage is
- * visible to any file manager, any other app, Termux, a PC over USB/MTP,
- * etc, so you can patch files with other tools and GitFlow Mobile will see the
- * changes next time you open the repo.
+ * The leading dot makes it a hidden folder by the usual Android/Linux
+ * convention — most file managers and gallery apps skip it by default in
+ * their normal listing (you can still navigate into it directly, or toggle
+ * "show hidden files"). It's still genuinely public storage, not the app's
+ * private sandbox — a file manager, another app, Termux, or a PC over
+ * USB/MTP can all still reach it, same as before; it's just not cluttering
+ * the top level of shared storage for casual browsing.
+ *
+ * Why public storage at all: Android/data is locked down starting Android
+ * 11 — even file manager apps can't easily browse into another app's
+ * Android/data folder anymore. A public folder under the root of shared
+ * storage is visible to any file manager, any other app, Termux, a PC over
+ * USB/MTP, etc, so you can patch files with other tools and GitFlow Mobile
+ * will see the changes next time you open the repo.
  *
  * The trade-off: JGit needs a real java.io.File path (not a SAF content://
  * URI), so the simplest way to get one for a public folder is the
@@ -25,9 +33,19 @@ import java.io.File
  * That's a manual toggle in system Settings — Android won't show a normal
  * permission popup for it — so this class also handles building the Intent
  * that takes the user straight to the right settings screen.
+ *
+ * NOTE on the folder rename (GitFlowMobile → .GitFlow): repos already
+ * cloned under the old visible "GitFlowMobile" folder keep working exactly
+ * as before — each repo's location is stored as an absolute path in the
+ * database, not recomputed from this constant, so nothing breaks for
+ * existing repos. What changes going forward: new clones land in the
+ * hidden folder, and the local-repo auto-detect scan now only looks inside
+ * the hidden folder — a repo manually dropped into the old visible folder
+ * won't be auto-detected anymore. Move it under the new hidden folder (or
+ * just clone fresh) if you want it picked up.
  */
 object PublicStorage {
-    private const val FOLDER_NAME = "GitFlowMobile"
+    private const val FOLDER_NAME = ".GitFlow"
 
     /** Root folder for all cloned repos. Creates it if it doesn't exist yet. */
     fun reposRootDir(): File {
