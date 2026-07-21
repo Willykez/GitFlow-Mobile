@@ -475,3 +475,14 @@ that for both properties (the pattern every other ViewModel in this
 codebase already uses — audited all of them, this was the only one with
 this bug, since it's the only ViewModel that needed two different
 properties off `app` rather than one).
+
+## "Actions" moved to the top bar
+
+Was buried in Changes → ⋮ → Manage → "Actions (CI runs)"; now it's a
+direct icon in the Changes screen's top bar, alongside Push/Refresh/⋮
+(checking CI status is frequent enough to deserve one tap, same reasoning
+as Push already being direct instead of in the overflow). Removed the
+now-redundant entry from the Manage group rather than keeping it in both
+places. There's no bottom nav bar in this app (single-activity,
+push-style Navigation Compose) — the top bar is the only "always visible"
+surface, so that's where this landed rather than a separate nav element.

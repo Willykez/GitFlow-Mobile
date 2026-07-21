@@ -115,6 +115,9 @@ fun ChangesScreen(
                 actions = {
                     // Push is the #1 reason someone opens this menu — surface it directly
                     // instead of burying it in an overflow list.
+                    IconButton(onClick = onOpenActions) {
+                        Icon(Icons.Filled.PlayCircle, "Actions (CI runs)")
+                    }
                     IconButton(onClick = vm::push, enabled = !state.isWorking) {
                         Icon(Icons.Filled.Upload, "Push", tint = Amber)
                     }
@@ -343,7 +346,6 @@ fun ChangesScreen(
             onOpenFiles = onOpenFiles,
             onOpenProblems = onOpenProblems,
             onOpenSearch = onOpenSearch,
-            onOpenActions = onOpenActions,
         )
     }
 }
@@ -385,7 +387,6 @@ private fun RepoToolsSheet(
     onOpenFiles: () -> Unit,
     onOpenProblems: () -> Unit,
     onOpenSearch: () -> Unit,
-    onOpenActions: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var openGroup by remember { mutableStateOf<String?>(null) }
@@ -464,7 +465,6 @@ private fun RepoToolsSheet(
                 ToolRow("Files", Icons.Filled.Folder) { close(onOpenFiles) }
                 ToolRow("Problems (TODO/FIXME)", Icons.Filled.Checklist) { close(onOpenProblems) }
                 ToolRow("Search repo", Icons.Filled.Search) { close(onOpenSearch) }
-                ToolRow("Actions (CI runs)", Icons.Filled.PlayCircle) { close(onOpenActions) }
             }
         }
     }
