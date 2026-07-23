@@ -6,6 +6,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import willykez.gitflowmobile.App
+import willykez.gitflowmobile.data.PublicStorage
 import willykez.gitflowmobile.data.github.GitHubActionsApi
 import willykez.gitflowmobile.data.github.GitHubResult
 import willykez.gitflowmobile.data.github.WorkflowArtifact
@@ -140,24 +141,28 @@ class WorkflowRunsViewModel(app: Application) : AndroidViewModel(app) {
             _state.value = _state.value.copy(message = "This artifact has expired on GitHub's side and can no longer be downloaded.")
             return
         }
+        val context = getApplication<Application>()
+        if (!PublicStorage.hasStorageAccess(context)) {
+            _state.value = _state.value.copy(message = "GitFlow Mobile needs storage access to save downloads to .GitFlow/release — grant it from the home screen's storage-access prompt first.")
+            return
+        }
         viewModelScope.launch {
             _state.value = _state.value.copy(downloadingArtifactId = artifact.id)
-            val apkDir = File(getApplication<Application>().cacheDir, "downloaded-apks").apply { mkdirs() }
-            val zipFile = File(apkDir, "artifact-${artifact.id}.zip")
+            val releaseDir = PublicStorage.releaseDir()
+            val zipFile = File(releaseDir, "artifact-${artifact.id}.zip")
             val dlResult = GitHubActionsApi.downloadArtifactZip(token, owner, repoSlug, artifact.id, zipFile)
             if (dlResult is GitHubResult.Error) {
                 _state.value = _state.value.copy(downloadingArtifactId = null, message = dlResult.message)
                 return@launch
             }
-            val apkFile = withContext(Dispatchers.IO) { extractFirstApk(zipFile, apkDir, artifact.name) }
+            val apkFile = withContext(Dispatchers.IO) { extractFirstApk(zipFile, releaseDir, artifact.name) }
             zipFile.delete() // the zip itself was just a wrapper — no reason to keep it around
             if (apkFile == null) {
                 _state.value = _state.value.copy(downloadingArtifactId = null, message = "No .apk file found inside \"${artifact.name}\" — is this actually a build artifact?")
                 return@launch
             }
-            val context = getApplication<Application>()
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apkFile)
-            _state.value = _state.value.copy(downloadingArtifactId = null, installUri = uri)
+            _state.value = _state.value.copy(downloadingArtifactId = null, installUri = uri, message = "Saved to .GitFlow/release/${apkFile.name}")
         }
     }
 

@@ -117,7 +117,26 @@ object GitHubApi {
      *  generic failure. */
     suspend fun deleteRepo(token: String, owner: String, repo: String): GitHubResult<Unit> {
         return when (val r = httpRequest("$BASE/repos/$owner/$repo", "DELETE", token, null)) {
-            is GitHubResult.Error -> r
+            is GitHubResult.Error -> {
+                // GitHub's own message here ("Must have admin rights to Repository") is
+                // accurate but not actionable on its own — it doesn't say *which* setting
+                // to go check. This isn't a bug in the delete call itself: deleting a repo
+                // needs a permission level most tokens simply aren't granted by default,
+                // even when that same token can push/pull/create repos just fine (GitHub
+                // treats deletion as separately opt-in). Append what to actually go check,
+                // since the two token types phrase this permission differently.
+                if (r.message.contains("admin rights", ignoreCase = true)) {
+                    GitHubResult.Error(
+                        "${r.message} This token doesn't have delete permission on this repo — " +
+                            "for a classic personal access token, regenerate it with the " +
+                            "\"delete_repo\" scope checked; for a fine-grained token, set " +
+                            "\"Administration\" repository permission to \"Read and write\" " +
+                            "for this repo. Push/pull/create can all work fine on a token that " +
+                            "still can't delete — GitHub treats deletion as a separate, " +
+                            "deliberately opt-in permission.",
+                    )
+                } else r
+            }
             is GitHubResult.Success -> GitHubResult.Success(Unit)
         }
     }

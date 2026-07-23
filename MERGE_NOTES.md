@@ -543,3 +543,39 @@ else in the app's storage is reachable through this provider.
 retention period — shown as "Expired" instead of an Install button, no
 failed download attempt), and no-APK-found-in-zip (clear message rather
 than a silent no-op).
+
+## Delete-repo error message improved
+
+"Must have admin rights to Repository" was GitHub's own accurate 403
+message being passed straight through — not a bug in the delete call.
+It's genuinely a token-permission issue: deleting a repo needs a
+permission level most tokens aren't granted by default, even ones that
+push/pull/create fine (GitHub treats deletion as separately opt-in).
+`GitHubApi.deleteRepo` now detects this specific message and appends
+what to actually go check: a classic PAT needs the `delete_repo` scope
+added (requires regenerating the token); a fine-grained token needs
+"Administration" repository permission set to "Read and write" for that
+repo.
+
+## Downloaded APKs now live in .GitFlow/release, not the app's private cache
+
+New `PublicStorage.releaseDir()` — a sibling of `repos/` under the same
+shared `.GitFlow` root. `WorkflowRunsViewModel.downloadAndInstall` now
+downloads/extracts there instead of the app's private cache dir, so a
+downloaded debug/release APK stays reachable (and re-shareable,
+re-installable) through a normal file manager even outside the app,
+instead of disappearing into a cache folder nothing else can see and
+Android can clear under storage pressure.
+
+Two follow-on changes this required:
+- **A storage-access guard**: since this is now public storage (same
+  `MANAGE_EXTERNAL_STORAGE`/legacy `WRITE_EXTERNAL_STORAGE` gate the repos
+  folder already needs), `downloadAndInstall` checks
+  `PublicStorage.hasStorageAccess()` first and gives a clear message
+  pointing at the home screen's storage-access prompt rather than a
+  cryptic file-write failure if it's not granted.
+- **`file_paths.xml` updated**: FileProvider needs to be told this new
+  external path is shareable — added an `<external-path>` entry scoped to
+  exactly `.GitFlow/release/`, matching how `PublicStorage` itself
+  resolves the folder (`Environment.getExternalStorageDirectory()`).
+  Nothing else in shared storage is exposed through this provider.

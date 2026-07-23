@@ -55,6 +55,20 @@ object PublicStorage {
         return repos
     }
 
+    /** Where downloaded build artifacts (debug/release APKs pulled from the Actions
+     *  screen) land — a sibling of `repos/` under the same shared `.GitFlow` root,
+     *  not the app's private cache. Same reasoning as repos living in public storage:
+     *  a downloaded APK stays reachable (and re-installable, or shareable) through a
+     *  normal file manager even outside this app, rather than disappearing into a
+     *  cache folder that's invisible without this app and gets cleared under storage
+     *  pressure. Creates it if it doesn't exist yet. */
+    fun releaseDir(): File {
+        val root = File(Environment.getExternalStorageDirectory(), FOLDER_NAME)
+        val release = File(root, "release")
+        release.mkdirs()
+        return release
+    }
+
     /**
      * Whether the app currently has the access it needs to read/write the
      * public folder above. On Android 10 and below this is always true here
